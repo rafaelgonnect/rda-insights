@@ -1,0 +1,11 @@
+process.env.APP_USERNAME = "test";
+process.env.APP_PASSWORD = "testpassword";
+process.env.ANTHROPIC_API_KEY = "sk-test-key";
+process.env.MCP_INTERNAL_URL = "http://localhost:5008";
+process.env.MCP_JWT_SECRET = "test-secret-at-least-32-chars-long-xx";
+process.env.MCP_JWT_ISSUER = "claude-code-user";
+process.env.MCP_JWT_AUDIENCE = "superset-mcp";
+process.env.SUPERSET_URL = "http://localhost:8088";
+process.env.REDIS_URL = "redis://localhost:6379/2";
+process.env.MAX_USD_MONTH = "20";
+process.env.ANTHROPIC_MODEL = "claude-sonnet-4-6";
