@@ -24,18 +24,28 @@ export class McpClient {
   }
 
   private async login(): Promise<SupersetAuth> {
-    const loginRes = await fetch(`${this.baseUrl}/api/v1/security/login`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        username: env.SUPERSET_USERNAME,
-        password: env.SUPERSET_PASSWORD,
-        provider: "db",
-        refresh: true,
-      }),
-    });
+    const loginUrl = `${this.baseUrl}/api/v1/security/login`;
+    console.error("[mcp.login] POST", loginUrl, "user=", env.SUPERSET_USERNAME);
+    let loginRes: Response;
+    try {
+      loginRes = await fetch(loginUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          username: env.SUPERSET_USERNAME,
+          password: env.SUPERSET_PASSWORD,
+          provider: "db",
+          refresh: true,
+        }),
+      });
+    } catch (e) {
+      console.error("[mcp.login] fetch threw:", e);
+      throw e;
+    }
     if (!loginRes.ok) {
-      throw new McpError(loginRes.status, `Superset login failed (${loginRes.status})`);
+      const body = await loginRes.text().catch(() => "<no body>");
+      console.error("[mcp.login] HTTP", loginRes.status, "body:", body);
+      throw new McpError(loginRes.status, `Superset login failed (${loginRes.status}): ${body}`);
     }
     const loginJson = (await loginRes.json()) as { access_token: string };
     const accessToken = loginJson.access_token;
@@ -44,7 +54,9 @@ export class McpClient {
       headers: { authorization: `Bearer ${accessToken}` },
     });
     if (!csrfRes.ok) {
-      throw new McpError(csrfRes.status, `Superset csrf_token failed (${csrfRes.status})`);
+      const body = await csrfRes.text().catch(() => "<no body>");
+      console.error("[mcp.login] csrf HTTP", csrfRes.status, "body:", body);
+      throw new McpError(csrfRes.status, `Superset csrf_token failed (${csrfRes.status}): ${body}`);
     }
     const csrfJson = (await csrfRes.json()) as { result: string };
     return { accessToken, csrfToken: csrfJson.result };
