@@ -15,9 +15,20 @@ const schema = z.object({
   SUPERSET_USERNAME: z.string().min(1),
   SUPERSET_PASSWORD: z.string().min(1),
 
+  // Comma-separated origins allowed to embed Superset dashboards. Used when
+  // the backend auto-creates the embedded UUID for a dashboard the first
+  // time someone tries to embed it. Empty = no allowlist (Superset accepts
+  // any embedder origin that has a valid guest token).
+  EMBED_ALLOWED_DOMAINS: z.string().optional().default(""),
+
   REDIS_URL: z.string().url(),
   MAX_USD_MONTH: z.coerce.number().positive().default(20),
 });
 
 export const env = schema.parse(process.env);
 export type Env = z.infer<typeof schema>;
+
+export const embedAllowedDomains: string[] = env.EMBED_ALLOWED_DOMAINS
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);

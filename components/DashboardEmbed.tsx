@@ -70,5 +70,10 @@ export function DashboardEmbed({
     };
   }, [dashboardId, supersetUrl, onCrossFilter]);
 
-  return <div ref={mountRef} className="w-full h-full" />;
+  return (
+    <div
+      ref={mountRef}
+      className="w-full h-full [&>iframe]:w-full [&>iframe]:h-full [&>iframe]:border-0 [&>iframe]:block"
+    />
+  );
 }

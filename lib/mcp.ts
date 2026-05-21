@@ -5,7 +5,7 @@
 // so this implementation talks to Superset's REST API directly. Public surface
 // is preserved so route handlers don't need to change.
 
-import { env } from "./env";
+import { env, embedAllowedDomains } from "./env";
 
 export class McpError extends Error {
   constructor(public code: number | undefined, message: string) {
@@ -182,10 +182,25 @@ export class McpClient {
   }
 
   async getDashboardEmbedUuid(dashboardId: number): Promise<string> {
-    const r = await this.fetchJson<{ result: { uuid: string } }>(
-      `/api/v1/dashboard/${dashboardId}/embedded`
-    );
-    return r.result.uuid;
+    // GET returns the existing embedded record. If embedding was never
+    // enabled for this dashboard, Superset answers 404 — in that case we
+    // POST to create it, using EMBED_ALLOWED_DOMAINS as the allowlist.
+    try {
+      const r = await this.fetchJson<{ result: { uuid: string } }>(
+        `/api/v1/dashboard/${dashboardId}/embedded`
+      );
+      return r.result.uuid;
+    } catch (e) {
+      if (!(e instanceof McpError) || e.code !== 404) throw e;
+      const created = await this.fetchJson<{ result: { uuid: string } }>(
+        `/api/v1/dashboard/${dashboardId}/embedded`,
+        {
+          method: "POST",
+          body: JSON.stringify({ allowed_domains: embedAllowedDomains }),
+        }
+      );
+      return created.result.uuid;
+    }
   }
 
   async createGuestToken(
