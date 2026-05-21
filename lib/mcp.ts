@@ -312,6 +312,69 @@ export class McpClient {
     };
   }
 
+  async getDatasetMeta(
+    id: number
+  ): Promise<{ database_id: number; schema: string | null; table_name: string }> {
+    const r = await this.fetchJson<{
+      result: { database?: { id: number }; schema?: string | null; table_name: string };
+    }>(`/api/v1/dataset/${id}`);
+    return {
+      database_id: r.result.database?.id ?? 0,
+      schema: r.result.schema ?? null,
+      table_name: r.result.table_name,
+    };
+  }
+
+  async findDashboards(
+    nameContains: string,
+    limit = 20
+  ): Promise<{ id: number; dashboard_title: string }[]> {
+    const val = nameContains.replace(/'/g, "\\'");
+    const q = encodeURIComponent(
+      `(filters:!((col:dashboard_title,opr:ct,value:'${val}')),page_size:${limit})`
+    );
+    const r = await this.fetchJson<{
+      result: { id: number; dashboard_title: string }[];
+    }>(`/api/v1/dashboard/?q=${q}`);
+    return r.result.map((d) => ({ id: d.id, dashboard_title: d.dashboard_title }));
+  }
+
+  async findCharts(
+    nameContains?: string,
+    vizType?: string,
+    limit = 20
+  ): Promise<{ id: number; slice_name: string; viz_type: string }[]> {
+    const filters: string[] = [];
+    if (nameContains) {
+      const val = nameContains.replace(/'/g, "\\'");
+      filters.push(`(col:slice_name,opr:ct,value:'${val}')`);
+    }
+    if (vizType) {
+      const val = vizType.replace(/'/g, "\\'");
+      filters.push(`(col:viz_type,opr:eq,value:'${val}')`);
+    }
+    const filterStr = filters.length > 0 ? `filters:!(${filters.join(",")}),` : "";
+    const q = encodeURIComponent(`(${filterStr}page_size:${limit})`);
+    const r = await this.fetchJson<{
+      result: { id: number; slice_name: string; viz_type: string }[];
+    }>(`/api/v1/chart/?q=${q}`);
+    return r.result.map((c) => ({ id: c.id, slice_name: c.slice_name, viz_type: c.viz_type }));
+  }
+
+  async findDatasets(
+    nameContains: string,
+    limit = 20
+  ): Promise<{ id: number; table_name: string }[]> {
+    const val = nameContains.replace(/'/g, "\\'");
+    const q = encodeURIComponent(
+      `(filters:!((col:table_name,opr:ct,value:'${val}')),page_size:${limit})`
+    );
+    const r = await this.fetchJson<{
+      result: { id: number; table_name: string }[];
+    }>(`/api/v1/dataset/?q=${q}`);
+    return r.result.map((d) => ({ id: d.id, table_name: d.table_name }));
+  }
+
   async getHealth(): Promise<{ status: string }> {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 5000);
