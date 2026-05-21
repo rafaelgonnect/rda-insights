@@ -70,23 +70,45 @@ function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
 // ─── Registry shape ────────────────────────────────────────────────────────────
 
 describe("Tool registry", () => {
-  it("registers 12 tools", () => {
-    expect(getTools()).toHaveLength(12);
+  it("registers 25 tools (12 read + 13 write)", () => {
+    expect(getTools()).toHaveLength(25);
   });
 
   it("getToolByName returns undefined for unknown tool", () => {
     expect(getToolByName("nonexistent_tool")).toBeUndefined();
   });
 
-  it("all tools have requiresConfirmation: false in Fase 2", () => {
-    for (const tool of getTools()) {
-      expect(tool.requiresConfirmation, `tool ${tool.name}`).toBe(false);
+  it("all READ tools have requiresConfirmation: false", () => {
+    const readTools = [
+      "list_dashboards", "get_dashboard_charts", "get_chart", "get_chart_data",
+      "get_dataset_columns", "get_dataset_sample", "find_dashboards", "find_charts",
+      "find_datasets", "describe_chart", "summarize_dashboard_outline", "get_active_filter",
+    ];
+    for (const name of readTools) {
+      const tool = getToolByName(name);
+      expect(tool, `tool ${name}`).toBeDefined();
+      expect(tool?.requiresConfirmation, `tool ${name}`).toBe(false);
+    }
+  });
+
+  it("all WRITE tools have requiresConfirmation: true", () => {
+    const writeTools = [
+      "create_simple_chart", "update_chart", "delete_chart",
+      "create_dashboard", "update_dashboard", "delete_dashboard",
+      "attach_charts_to_dashboard", "build_dashboard_layout",
+      "create_dataset", "delete_dataset", "refresh_dataset",
+      "execute_sql", "grant_dataset_to_role",
+    ];
+    for (const name of writeTools) {
+      const tool = getToolByName(name);
+      expect(tool, `tool ${name}`).toBeDefined();
+      expect(tool?.requiresConfirmation, `tool ${name}`).toBe(true);
     }
   });
 
   it("toolsForOpenAI() returns correct shape", () => {
     const tools = toolsForOpenAI();
-    expect(tools).toHaveLength(12);
+    expect(tools).toHaveLength(25);
     for (const t of tools) {
       expect(t.type).toBe("function");
       // Cast to access function property (ChatCompletionFunctionTool)

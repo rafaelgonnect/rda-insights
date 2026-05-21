@@ -16,7 +16,6 @@ import {
   ChatMessageItem,
   ChatMessageType,
   ToolCallEvent,
-  humanizeTool,
 } from "@/components/ChatMessage";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -251,6 +250,19 @@ export function ChatSidebar({
               durationMs: typeof d.durationMs === "number" ? d.durationMs : undefined,
               resultPreview: typeof d.resultPreview === "string" ? d.resultPreview : undefined,
             });
+          } else if (event === "tool_pending_confirmation") {
+            // LLM wants to call a write tool — push a confirmation card
+            const confirmMsg: ChatMessageType = {
+              role: "tool_confirmation",
+              id: crypto.randomUUID(),
+              pendingId: String(d.pending_id),
+              toolCallId: String(d.tool_call_id),
+              name: String(d.name),
+              args: (d.args as Record<string, unknown>) ?? {},
+              status: "pending",
+            };
+            setMessages((prev) => [...prev, confirmMsg]);
+            setStreaming(false); // wait for user decision
           } else if (event === "done") {
             console.log("[chat] done", d);
           }
@@ -265,6 +277,144 @@ export function ChatSidebar({
         return;
       }
       setError(String(e));
+      setStreaming(false);
+    }
+  }
+
+  // ─── Confirmation handler ──────────────────────────────────────────────────
+
+  async function handleConfirm(pendingId: string, decision: "apply" | "cancel") {
+    // Update the confirmation card status immediately
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.role === "tool_confirmation" && m.pendingId === pendingId
+          ? { ...m, status: decision === "apply" ? "applying" : "canceled" }
+          : m
+      )
+    );
+
+    if (decision === "cancel") {
+      // POST to confirm endpoint with cancel decision — still stream the LLM continuation
+      // (the LLM will acknowledge the cancellation)
+    }
+
+    // Create a new assistant message for the continuation
+    const assistantId = crypto.randomUUID();
+    const assistantMsg: ChatMessageType = {
+      role: "assistant",
+      content: "",
+      id: assistantId,
+      createdAt: Date.now(),
+      toolCalls: [],
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+    setStreaming(true);
+    isPinnedRef.current = true;
+
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+
+    function appendDelta(delta: string) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.role === "assistant" && m.id === assistantId
+            ? { ...m, content: m.content + delta }
+            : m
+        )
+      );
+    }
+
+    function upsertToolCall(tc: Partial<ToolCallEvent> & { id: string }) {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.role !== "assistant" || m.id !== assistantId) return m;
+          const existing = m.toolCalls.find((t) => t.id === tc.id);
+          if (existing) {
+            return {
+              ...m,
+              toolCalls: m.toolCalls.map((t) =>
+                t.id === tc.id ? { ...t, ...tc } : t
+              ),
+            };
+          }
+          const newTc: ToolCallEvent = {
+            id: tc.id,
+            name: tc.name ?? "",
+            args: tc.args ?? {},
+            status: tc.status ?? "running",
+            durationMs: tc.durationMs,
+            resultPreview: tc.resultPreview,
+          };
+          return { ...m, toolCalls: [...m.toolCalls, newTc] };
+        })
+      );
+    }
+
+    try {
+      await streamPostSse({
+        url: "/api/chat/confirm",
+        body: { pending_id: pendingId, decision },
+        signal: ctl.signal,
+        onEvent(event, data) {
+          const d = data as Record<string, unknown>;
+          if (event === "" || event === "delta") {
+            if (typeof d.text === "string") appendDelta(d.text);
+          } else if (event === "tool_call_start") {
+            upsertToolCall({
+              id: String(d.id),
+              name: String(d.name),
+              args: (d.args as Record<string, unknown>) ?? {},
+              status: "running",
+            });
+          } else if (event === "tool_call_end") {
+            upsertToolCall({
+              id: String(d.id),
+              status: d.ok ? "ok" : "error",
+              durationMs: typeof d.durationMs === "number" ? d.durationMs : undefined,
+              resultPreview: typeof d.resultPreview === "string" ? d.resultPreview : undefined,
+            });
+          } else if (event === "tool_pending_confirmation") {
+            // Another write tool — push a new confirmation card
+            const confirmMsg: ChatMessageType = {
+              role: "tool_confirmation",
+              id: crypto.randomUUID(),
+              pendingId: String(d.pending_id),
+              toolCallId: String(d.tool_call_id),
+              name: String(d.name),
+              args: (d.args as Record<string, unknown>) ?? {},
+              status: "pending",
+            };
+            setMessages((prev) => [...prev, confirmMsg]);
+            setStreaming(false); // pause until user acts on the new card
+          } else if (event === "done") {
+            // Mark the confirmation card as applied (if it was "applying")
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.role === "tool_confirmation" && m.pendingId === pendingId && m.status === "applying"
+                  ? { ...m, status: "applied" }
+                  : m
+              )
+            );
+            console.log("[chat.confirm] done", d);
+          }
+        },
+        onClose() {
+          setStreaming(false);
+        },
+      });
+    } catch (e) {
+      if ((e as Error).name === "AbortError") {
+        setStreaming(false);
+        return;
+      }
+      // Mark the confirmation card as error
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.role === "tool_confirmation" && m.pendingId === pendingId
+            ? { ...m, status: "error", errorMessage: String(e) }
+            : m
+        )
+      );
       setStreaming(false);
     }
   }
@@ -350,7 +500,17 @@ export function ChatSidebar({
             )}
 
             {messages.map((msg) => (
-              <ChatMessageItem key={msg.role === "tool_activity" ? msg.toolCallId : (msg as { id: string }).id} msg={msg} />
+              <ChatMessageItem
+                key={
+                  msg.role === "tool_activity"
+                    ? msg.toolCallId
+                    : msg.role === "tool_confirmation"
+                    ? msg.id
+                    : (msg as { id: string }).id
+                }
+                msg={msg}
+                onConfirm={handleConfirm}
+              />
             ))}
 
             {error && (

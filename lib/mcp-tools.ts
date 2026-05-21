@@ -358,6 +358,231 @@ register({
   },
 });
 
+// ─── WRITE TOOLS (requiresConfirmation: true) ─────────────────────────────────
+
+// ─── 13. create_simple_chart ──────────────────────────────────────────────────
+
+register({
+  name: "create_simple_chart",
+  description:
+    "Create a new chart in Superset from high-level inputs without hand-building form_data. This creates a REAL chart that will appear in the chart library. chart_type must be one of: bar, line, area, scatter, pie, big_number, big_number_trend, table, histogram, heatmap, treemap, sankey. Required args by chart_type: bar/line/area/scatter require x_axis + metric_column; pie/treemap/sankey require dimension (metric_column optional, defaults to COUNT(*)); big_number/big_number_trend require metric_column (optional, defaults to COUNT(*)). Returns the new chart_id.",
+  parameters: z.object({
+    slice_name: z.string().min(1),
+    dataset_id: z.number().int().positive(),
+    chart_type: z.string().min(1),
+    x_axis: z.string().optional(),
+    dimension: z.string().optional(),
+    metric_column: z.string().optional(),
+    metric_aggregate: z.string().optional(),
+    row_limit: z.number().int().positive().max(10000).optional(),
+    dashboards: z.array(z.number().int().positive()).optional(),
+    description: z.string().optional(),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.createSimpleChart(input);
+  },
+});
+
+// ─── 14. update_chart ─────────────────────────────────────────────────────────
+
+register({
+  name: "update_chart",
+  description:
+    "Update an existing chart in Superset (partial update). Modifies REAL data. payload can include: slice_name, viz_type, params (form_data JSON string), datasource_id, description, dashboards (list of dashboard IDs). Returns the updated chart.",
+  parameters: z.object({
+    chart_id: z.number().int().positive(),
+    payload: z.record(z.string(), z.unknown()),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.updateChart(input.chart_id, input.payload);
+  },
+});
+
+// ─── 15. delete_chart ─────────────────────────────────────────────────────────
+
+register({
+  name: "delete_chart",
+  description:
+    "Permanently delete a chart from Superset. This action CANNOT be undone. The chart is removed from all dashboards. Returns a confirmation message.",
+  parameters: z.object({
+    chart_id: z.number().int().positive(),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.deleteChart(input.chart_id);
+  },
+});
+
+// ─── 16. create_dashboard ─────────────────────────────────────────────────────
+
+register({
+  name: "create_dashboard",
+  description:
+    "Create a new empty dashboard in Superset. This creates a REAL dashboard that will appear in the dashboard list. Use attach_charts_to_dashboard and build_dashboard_layout afterwards to populate it. Returns the new dashboard_id.",
+  parameters: z.object({
+    dashboard_title: z.string().min(1),
+    slug: z.string().optional(),
+    published: z.boolean().optional(),
+    owners: z.array(z.number().int().positive()).optional(),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.createDashboard(input);
+  },
+});
+
+// ─── 17. update_dashboard ─────────────────────────────────────────────────────
+
+register({
+  name: "update_dashboard",
+  description:
+    "Update an existing dashboard in Superset (partial update). Modifies REAL data. payload can include: dashboard_title, slug, published, position_json (layout), css, json_metadata, owners, roles. Returns the updated dashboard.",
+  parameters: z.object({
+    dashboard_id: z.number().int().positive(),
+    payload: z.record(z.string(), z.unknown()),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.updateDashboard(input.dashboard_id, input.payload);
+  },
+});
+
+// ─── 18. delete_dashboard ─────────────────────────────────────────────────────
+
+register({
+  name: "delete_dashboard",
+  description:
+    "Permanently delete a dashboard from Superset. This action CANNOT be undone. Charts are NOT deleted (only the dashboard container). Returns a confirmation message.",
+  parameters: z.object({
+    dashboard_id: z.number().int().positive(),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.deleteDashboard(input.dashboard_id);
+  },
+});
+
+// ─── 19. attach_charts_to_dashboard ──────────────────────────────────────────
+
+register({
+  name: "attach_charts_to_dashboard",
+  description:
+    "Link existing charts to a dashboard (chart-dashboard association). This is needed so charts referenced in position_json actually render. Does NOT change the layout — call build_dashboard_layout to set positions. Returns { linked: [...], already_linked: [...] }.",
+  parameters: z.object({
+    dashboard_id: z.number().int().positive(),
+    chart_ids: z.array(z.number().int().positive()).min(1),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.attachChartsToDashboard(input.dashboard_id, input.chart_ids);
+  },
+});
+
+// ─── 20. build_dashboard_layout ───────────────────────────────────────────────
+
+register({
+  name: "build_dashboard_layout",
+  description:
+    "Greedy-pack charts into rows and apply the layout to a dashboard (overwrites position_json and json_metadata). charts_spec items: { chart_id, width (1-12), height (rows ~50px), slice_name? }. Width up to 12 per row; overflow wraps to a new row. Also sets cross_filters_enabled. Returns { dashboard_id, layout_keys, rows, applied_chart_ids }.",
+  parameters: z.object({
+    dashboard_id: z.number().int().positive(),
+    charts_spec: z.array(z.object({
+      chart_id: z.number().int().positive(),
+      width: z.number().int().min(1).max(12),
+      height: z.number().int().positive(),
+      slice_name: z.string().optional(),
+    })).min(1),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.buildDashboardLayout(input.dashboard_id, input.charts_spec);
+  },
+});
+
+// ─── 21. create_dataset ───────────────────────────────────────────────────────
+
+register({
+  name: "create_dataset",
+  description:
+    "Register a new dataset (table or view) in Superset by pointing it at a database table. This creates a REAL dataset. database_id: use list_databases or find_datasets to find valid IDs. Returns the new dataset_id.",
+  parameters: z.object({
+    database_id: z.number().int().positive(),
+    table_name: z.string().min(1),
+    schema: z.string().optional(),
+    owners: z.array(z.number().int().positive()).optional(),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.createDataset(input);
+  },
+});
+
+// ─── 22. delete_dataset ───────────────────────────────────────────────────────
+
+register({
+  name: "delete_dataset",
+  description:
+    "Permanently delete a dataset from Superset. This action CANNOT be undone. Charts that use this dataset will break. Returns a confirmation message.",
+  parameters: z.object({
+    dataset_id: z.number().int().positive(),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.deleteDataset(input.dataset_id);
+  },
+});
+
+// ─── 23. refresh_dataset ──────────────────────────────────────────────────────
+
+register({
+  name: "refresh_dataset",
+  description:
+    "Refresh a dataset's column metadata from the source database. Safe to run repeatedly — does not delete data. Use after DDL changes (ALTER TABLE, new columns). Returns the refresh result.",
+  parameters: z.object({
+    dataset_id: z.number().int().positive(),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.refreshDataset(input.dataset_id);
+  },
+});
+
+// ─── 24. execute_sql ──────────────────────────────────────────────────────────
+
+register({
+  name: "execute_sql",
+  description:
+    "Execute raw SQL against a database via SQL Lab. SENSITIVE: can modify data if SQL contains INSERT/UPDATE/DELETE/DROP. Returns { columns, rows }. Default limit 100 rows. Use get_dataset_sample for safe read-only sampling instead.",
+  parameters: z.object({
+    database_id: z.number().int().positive(),
+    sql: z.string().min(1),
+    schema: z.string().optional(),
+    limit: z.number().int().positive().max(1000).optional(),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.executeSql(input.database_id, input.sql, input.schema, input.limit ?? 100);
+  },
+});
+
+// ─── 25. grant_dataset_to_role ────────────────────────────────────────────────
+
+register({
+  name: "grant_dataset_to_role",
+  description:
+    "Grant datasource_access on a specific dataset to a Superset role. This allows users with that role to query the dataset and view charts that use it. Workflow: looks up the permission_view_menu (PVM) for the dataset via paginated scan, then PUTs the merged permission list to the role. Returns { role_id, added_pvm_id, view_menu, already_granted, permissions }.",
+  parameters: z.object({
+    role_id: z.number().int().positive(),
+    dataset_id: z.number().int().positive(),
+  }),
+  requiresConfirmation: true,
+  handler: async (input, ctx) => {
+    return ctx.mcp.grantDatasetToRole(input.role_id, input.dataset_id);
+  },
+});
+
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export function getTools(): ToolDef[] {

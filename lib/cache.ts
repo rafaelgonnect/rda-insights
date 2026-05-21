@@ -1,5 +1,6 @@
 import Redis from "ioredis";
 import { env } from "./env";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions/completions";
 
 let _client: Redis | null = null;
 
@@ -50,4 +51,48 @@ export async function getMonthlyCost(month: string): Promise<number> {
 
 export function currentMonthKey(d: Date = new Date()): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+// ─── Pending tool call state (Fase 4 write-tool confirmation) ────────────────
+
+export interface PendingToolCall {
+  id: string;
+  createdAt: number;
+  /** Full conversation history at the pause point, including the assistant
+   *  message that carries the tool_call so the LLM context is intact. */
+  messages: ChatCompletionMessageParam[];
+  toolCallId: string;
+  toolName: string;
+  toolArgs: Record<string, unknown>;
+  dashboardId?: number;
+  filterContext?: Record<string, unknown>;
+}
+
+const PENDING_PREFIX = "pending_tool:";
+
+export async function savePendingToolCall(p: PendingToolCall, ttlSec = 300): Promise<void> {
+  try {
+    await client().setex(`${PENDING_PREFIX}${p.id}`, ttlSec, JSON.stringify(p));
+  } catch (e) {
+    console.warn(JSON.stringify({ event: "pending_tool.save.fail", id: p.id, err: String(e) }));
+  }
+}
+
+export async function getPendingToolCall(id: string): Promise<PendingToolCall | null> {
+  try {
+    const raw = await client().get(`${PENDING_PREFIX}${id}`);
+    if (!raw) return null;
+    return JSON.parse(raw) as PendingToolCall;
+  } catch (e) {
+    console.warn(JSON.stringify({ event: "pending_tool.get.fail", id, err: String(e) }));
+    return null;
+  }
+}
+
+export async function deletePendingToolCall(id: string): Promise<void> {
+  try {
+    await client().del(`${PENDING_PREFIX}${id}`);
+  } catch (e) {
+    console.warn(JSON.stringify({ event: "pending_tool.delete.fail", id, err: String(e) }));
+  }
 }

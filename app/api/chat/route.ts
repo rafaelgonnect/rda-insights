@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { randomUUID } from "crypto";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions/completions";
 import { McpClient } from "@/lib/mcp";
 import { streamChat } from "@/lib/llm";
-import { toolsForOpenAI, executeTool, ToolContext } from "@/lib/mcp-tools";
-import { incrCost, getMonthlyCost, currentMonthKey } from "@/lib/cache";
+import { toolsForOpenAI, executeTool, getToolByName, ToolContext } from "@/lib/mcp-tools";
+import { incrCost, getMonthlyCost, currentMonthKey, savePendingToolCall } from "@/lib/cache";
 import { calculateCost } from "@/lib/cost";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { getSettings } from "@/lib/settings";
@@ -100,14 +101,18 @@ export async function POST(req: Request) {
 
     const tools = toolsForOpenAI();
 
+    const requiresConfirmation = (name: string) => getToolByName(name)?.requiresConfirmation === true;
+
     let usage = { input_tokens: 0, output_tokens: 0 };
     let generationId: string | undefined;
+    let paused = false;
 
     for await (const ev of streamChat(
       messages as ChatCompletionMessageParam[],
       {
         tools,
         executeTool: execTool,
+        requiresConfirmation,
         maxTokens: settings.maxTokens,
         model: settings.model,
         maxIterations: 6,
@@ -130,11 +135,38 @@ export async function POST(req: Request) {
             resultPreview: ev.resultPreview,
           }),
         };
+      } else if (ev.type === "tool_pending_confirmation") {
+        // Save the conversation state to Redis so the confirm endpoint can resume
+        const pendingId = randomUUID();
+        await savePendingToolCall({
+          id: pendingId,
+          createdAt: Date.now(),
+          messages: ev.messagesSoFar,
+          toolCallId: ev.tool_call_id,
+          toolName: ev.name,
+          toolArgs: ev.args,
+          dashboardId: dashboard_id,
+          filterContext: filter_context,
+        });
+        yield {
+          event: "tool_pending_confirmation",
+          data: JSON.stringify({
+            pending_id: pendingId,
+            tool_call_id: ev.tool_call_id,
+            name: ev.name,
+            args: ev.args,
+          }),
+        };
+        paused = true;
+        // Do NOT yield a done event here — the confirm endpoint will resume the conversation
+        return;
       } else if (ev.type === "done") {
         usage = ev.usage;
         generationId = ev.generation_id;
       }
     }
+
+    if (paused) return;
 
     const costUsd = calculateCost(settings.model, usage.input_tokens, usage.output_tokens);
     await incrCost(month, costUsd);
