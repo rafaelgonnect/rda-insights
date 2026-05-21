@@ -20,11 +20,11 @@ export type LlmEvent =
 
 export async function* streamInsight(
   prompt: { system: string; user: string },
-  opts: { signal?: AbortSignal; maxTokens?: number } = {}
+  opts: { signal?: AbortSignal; maxTokens?: number; model?: string } = {}
 ): AsyncGenerator<LlmEvent> {
   const stream = await client.chat.completions.create(
     {
-      model: env.OPENROUTER_MODEL,
+      model: opts.model ?? env.OPENROUTER_MODEL,
       max_tokens: opts.maxTokens ?? 600,
       stream: true,
       stream_options: { include_usage: true },

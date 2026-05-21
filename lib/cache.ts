@@ -27,6 +27,14 @@ export async function setCached(key: string, value: string, ttlSec: number): Pro
   }
 }
 
+export async function setPersistent(key: string, value: string): Promise<void> {
+  try {
+    await client().set(key, value);
+  } catch (e) {
+    console.warn(JSON.stringify({ event: "cache.setp.fail", key, err: String(e) }));
+  }
+}
+
 export async function incrCost(month: string, usd: number): Promise<void> {
   try {
     await client().incrbyfloat(`monthly_cost:${month}`, usd);

@@ -5,7 +5,7 @@ import { chartInsightKey } from "@/lib/cache-keys";
 import { getCached, setCached, incrCost, getMonthlyCost, currentMonthKey } from "@/lib/cache";
 import { calculateCost } from "@/lib/cost";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { env } from "@/lib/env";
+import { getSettings } from "@/lib/settings";
 import { sseStream } from "@/lib/sse";
 
 export const runtime = "nodejs";
@@ -30,14 +30,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     });
   }
 
+  const settings = await getSettings();
   const month = currentMonthKey();
-  if ((await getMonthlyCost(month)) >= env.MAX_USD_MONTH) {
+  if ((await getMonthlyCost(month)) >= settings.maxUsdMonth) {
     return new Response(JSON.stringify({ error: "Monthly cost cap reached" }), { status: 429 });
   }
 
   const body = (await req.json().catch(() => ({}))) as { filters?: Record<string, unknown> };
   const filters = body.filters ?? {};
-  const cacheKey = chartInsightKey(chartId, filters);
+  const cacheKey = chartInsightKey(chartId, filters, settings.model);
 
   return sseStream(async function* () {
     const t0 = Date.now();
@@ -75,7 +76,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const tLlm0 = Date.now();
     let acc = "";
     let usage = { input_tokens: 0, output_tokens: 0 };
-    for await (const ev of streamInsight(prompt)) {
+    for await (const ev of streamInsight(prompt, { model: settings.model, maxTokens: settings.maxTokens })) {
       if (ev.type === "delta") {
         acc += ev.text;
         yield { data: JSON.stringify({ text: ev.text }) };
@@ -86,15 +87,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const latencyLlm = Date.now() - tLlm0;
 
     await setCached(cacheKey, acc, CACHE_TTL_SEC);
-    const costUsd = calculateCost(env.OPENROUTER_MODEL, usage.input_tokens, usage.output_tokens);
+    const costUsd = calculateCost(settings.model, usage.input_tokens, usage.output_tokens);
     await incrCost(month, costUsd);
 
-    yield { event: "done", data: JSON.stringify({ cache_hit: false, usage, cost_usd: costUsd }) };
+    yield { event: "done", data: JSON.stringify({ cache_hit: false, usage, cost_usd: costUsd, model: settings.model }) };
     console.log(
       JSON.stringify({
         event: "insight.generated",
         route: "chart",
         chart_id: chartId,
+        model: settings.model,
         latency_mcp_ms: latencyMcp,
         latency_llm_ms: latencyLlm,
         tokens_in: usage.input_tokens,
