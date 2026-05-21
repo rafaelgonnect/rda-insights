@@ -124,11 +124,15 @@ export class McpClient {
     }
   }
 
-  async listDashboards(): Promise<{ id: number; dashboard_title: string }[]> {
+  async listDashboards(): Promise<{ id: number; dashboard_title: string; thumbnail_url: string | null }[]> {
     const r = await this.fetchJson<{
-      result: { id: number; dashboard_title: string }[];
+      result: { id: number; dashboard_title: string; thumbnail_url?: string | null }[];
     }>("/api/v1/dashboard/?q=(page_size:100)");
-    return r.result.map((d) => ({ id: d.id, dashboard_title: d.dashboard_title }));
+    return r.result.map((d) => ({
+      id: d.id,
+      dashboard_title: d.dashboard_title,
+      thumbnail_url: d.thumbnail_url ?? null,
+    }));
   }
 
   getDashboard = (id: number) => this.fetchJson<unknown>(`/api/v1/dashboard/${id}`);
@@ -142,12 +146,13 @@ export class McpClient {
 
   async getChart(
     id: number
-  ): Promise<{ slice_name: string; viz_type: string; datasource_id: number; params: unknown }> {
+  ): Promise<{ slice_name: string; viz_type: string; datasource_id: number; datasource_type: string; params: unknown }> {
     const r = await this.fetchJson<{
       result: {
         slice_name: string;
         viz_type: string;
         datasource_id: number;
+        datasource_type?: string;
         params: string | null;
       };
     }>(`/api/v1/chart/${id}`);
@@ -155,6 +160,7 @@ export class McpClient {
       slice_name: r.result.slice_name,
       viz_type: r.result.viz_type,
       datasource_id: r.result.datasource_id,
+      datasource_type: r.result.datasource_type ?? "table",
       params: r.result.params ? safeJsonParse(r.result.params) : {},
     };
   }
@@ -162,14 +168,73 @@ export class McpClient {
   async getChartData(
     id: number
   ): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
-    const r = await this.fetchJson<{
-      result: { colnames?: string[]; data?: Record<string, unknown>[] }[];
-    }>(`/api/v1/chart/${id}/data?force=false`);
-    const slice = r.result?.[0];
-    return {
-      columns: slice?.colnames ?? [],
-      rows: slice?.data ?? [],
-    };
+    type ChartDataResp = { result: { colnames?: string[]; data?: Record<string, unknown>[] }[] };
+
+    // Helper to normalise GET and POST responses into { columns, rows }.
+    function normalise(r: ChartDataResp): { columns: string[]; rows: Record<string, unknown>[] } | null {
+      const slice = r.result?.[0];
+      if (!slice) return null;
+      return { columns: slice.colnames ?? [], rows: slice.data ?? [] };
+    }
+
+    // Path A — GET /api/v1/chart/{id}/data/ (works when chart has stored query_context).
+    let pathAError: unknown;
+    try {
+      const r = await this.fetchJson<ChartDataResp>(`/api/v1/chart/${id}/data/`);
+      const out = normalise(r);
+      if (out) return out;
+      // Empty result: fall through to path B.
+      pathAError = new Error("no rows in GET response");
+    } catch (e) {
+      pathAError = e;
+      // Only fall back to path B for query_context errors or 400s that suggest missing context.
+      // For non-400 errors (e.g., 500, network), propagate immediately.
+      if (e instanceof McpError && e.code !== undefined && e.code !== 400) throw e;
+    }
+
+    // Path B — synthesize query from chart form_data and POST /api/v1/chart/data.
+    let pathBError: unknown;
+    try {
+      const chart = await this.getChart(id);
+      const params = chart.params as {
+        x_axis?: string | string[];
+        groupby?: string[];
+        metric?: unknown;
+        metrics?: unknown[];
+        row_limit?: number;
+      };
+
+      const colsRaw: unknown[] = [];
+      if (typeof params.x_axis === "string" && params.x_axis) colsRaw.push(params.x_axis);
+      else if (Array.isArray(params.x_axis)) colsRaw.push(...params.x_axis);
+      for (const g of params.groupby ?? []) if (!colsRaw.includes(g)) colsRaw.push(g);
+      const columns = colsRaw.filter((c): c is string => typeof c === "string");
+
+      let metrics: unknown[] = params.metrics ?? (params.metric ? [params.metric] : []);
+      metrics = metrics.filter((m) => m !== null && m !== undefined);
+
+      const queryBody = {
+        datasource: { id: chart.datasource_id, type: chart.datasource_type ?? "table" },
+        queries: [{ columns, metrics, row_limit: params.row_limit ?? 100, filters: [] }],
+        result_format: "json",
+        result_type: "full",
+      };
+
+      const r = await this.fetchJson<ChartDataResp>(`/api/v1/chart/data`, {
+        method: "POST",
+        body: JSON.stringify(queryBody),
+      });
+      const out = normalise(r);
+      if (out) return out;
+      pathBError = new Error("no rows in POST response");
+    } catch (e) {
+      pathBError = e;
+    }
+
+    throw new McpError(
+      undefined,
+      `getChartData failed for chart ${id}. Path A: ${String(pathAError)}; Path B: ${String(pathBError)}`
+    );
   }
 
   async getDatasetColumns(

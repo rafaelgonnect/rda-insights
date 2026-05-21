@@ -37,7 +37,7 @@ describe("McpClient (Superset REST)", () => {
     );
     const c = new McpClient();
     const r = await c.listDashboards();
-    expect(r).toEqual([{ id: 1, dashboard_title: "Demo" }]);
+    expect(r).toEqual([{ id: 1, dashboard_title: "Demo", thumbnail_url: null }]);
   });
 
   it("throws McpError on 4xx", async () => {

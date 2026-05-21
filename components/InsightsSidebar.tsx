@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { AlertCircle } from "lucide-react";
 import { streamPost } from "@/lib/sse-client";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 type Pending = "chart" | "row" | null;
 
@@ -104,15 +108,32 @@ export function InsightsSidebar({
 
       <ScrollArea className="flex-1 p-3">
         {error && (
-          <Card className="p-3 border-destructive mb-2">
-            <p className="text-xs text-destructive">{error}</p>
-            <Button size="sm" variant="ghost" className="mt-2" onClick={() => setError(null)}>
-              Tentar novamente
-            </Button>
+          <Card className="p-3 border-destructive mb-2 flex gap-2 items-start">
+            <AlertCircle className="size-4 text-destructive shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-destructive break-words">{error}</p>
+              <Button size="sm" variant="ghost" className="mt-2 h-7" onClick={() => setError(null)}>
+                Tentar novamente
+              </Button>
+            </div>
           </Card>
         )}
+
+        {pending && !output && !error && (
+          <Card className="p-3 space-y-2">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+            <Skeleton className="h-4 w-2/3" />
+          </Card>
+        )}
+
         {output && (
-          <Card className="p-3 whitespace-pre-wrap text-sm">{output}</Card>
+          <Card className="p-3 text-sm">
+            <div className="[&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_ul]:list-disc [&_ul]:pl-4 [&_li]:my-0.5 [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded max-w-none">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{output}</ReactMarkdown>
+            </div>
+          </Card>
         )}
       </ScrollArea>
     </aside>
