@@ -1,0 +1,7 @@
+# Force Nixpacks to use Node 20 (Next.js 16 requires >=20.9.0).
+# EasyPanel's default Nixpacks Node provider picks 18 unless overridden.
+
+providers = ["node"]
+
+[variables]
+NIXPACKS_NODE_VERSION = "20"
