@@ -13,7 +13,20 @@ export class McpError extends Error {
   }
 }
 
-type SupersetAuth = { accessToken: string; csrfToken: string };
+type SupersetAuth = { accessToken: string; csrfToken: string; cookie: string };
+
+function updateJar(jar: Map<string, string>, res: Response): void {
+  const headers = res.headers.getSetCookie?.() ?? [];
+  for (const h of headers) {
+    const [pair] = h.split(";");
+    const eq = pair.indexOf("=");
+    if (eq > 0) jar.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+  }
+}
+
+function jarToHeader(jar: Map<string, string>): string {
+  return Array.from(jar.entries()).map(([k, v]) => `${k}=${v}`).join("; ");
+}
 
 export class McpClient {
   private auth: SupersetAuth | null = null;
@@ -26,6 +39,7 @@ export class McpClient {
   private async login(): Promise<SupersetAuth> {
     const loginUrl = `${this.baseUrl}/api/v1/security/login`;
     console.error("[mcp.login] POST", loginUrl, "user=", env.SUPERSET_USERNAME);
+    const jar = new Map<string, string>();
     let loginRes: Response;
     try {
       loginRes = await fetch(loginUrl, {
@@ -47,19 +61,24 @@ export class McpClient {
       console.error("[mcp.login] HTTP", loginRes.status, "body:", body);
       throw new McpError(loginRes.status, `Superset login failed (${loginRes.status}): ${body}`);
     }
+    updateJar(jar, loginRes);
     const loginJson = (await loginRes.json()) as { access_token: string };
     const accessToken = loginJson.access_token;
 
     const csrfRes = await fetch(`${this.baseUrl}/api/v1/security/csrf_token`, {
-      headers: { authorization: `Bearer ${accessToken}` },
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        cookie: jarToHeader(jar),
+      },
     });
     if (!csrfRes.ok) {
       const body = await csrfRes.text().catch(() => "<no body>");
       console.error("[mcp.login] csrf HTTP", csrfRes.status, "body:", body);
       throw new McpError(csrfRes.status, `Superset csrf_token failed (${csrfRes.status}): ${body}`);
     }
+    updateJar(jar, csrfRes);
     const csrfJson = (await csrfRes.json()) as { result: string };
-    return { accessToken, csrfToken: csrfJson.result };
+    return { accessToken, csrfToken: csrfJson.result, cookie: jarToHeader(jar) };
   }
 
   private async ensureAuth(): Promise<SupersetAuth> {
@@ -83,6 +102,7 @@ export class McpClient {
           "content-type": "application/json",
           authorization: `Bearer ${auth.accessToken}`,
           "x-csrftoken": auth.csrfToken,
+          cookie: auth.cookie,
           referer: this.baseUrl,
           ...(init.headers || {}),
         },
