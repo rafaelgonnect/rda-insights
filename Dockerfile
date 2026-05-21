@@ -22,11 +22,10 @@ ENV APP_USERNAME=build
 ENV APP_PASSWORD=build-stub-password
 ENV OPENROUTER_API_KEY=sk-build-stub
 ENV OPENROUTER_MODEL=anthropic/claude-sonnet-4.5
-ENV MCP_INTERNAL_URL=http://stub:5008
-ENV MCP_JWT_SECRET=build-stub-secret-at-least-32-chars-xx
-ENV MCP_JWT_ISSUER=claude-code-user
-ENV MCP_JWT_AUDIENCE=superset-mcp
 ENV SUPERSET_URL=http://stub:8088
+ENV SUPERSET_INTERNAL_URL=http://stub:8088
+ENV SUPERSET_USERNAME=admin
+ENV SUPERSET_PASSWORD=build-stub-password
 ENV REDIS_URL=redis://stub:6379/2
 ENV MAX_USD_MONTH=20
 

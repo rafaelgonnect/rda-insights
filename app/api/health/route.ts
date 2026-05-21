@@ -7,11 +7,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const status = { mcp: "down", openrouter: "skipped", redis: "down" };
+  const status = { superset: "down", openrouter: "skipped", redis: "down" };
 
   try {
     await new McpClient().getHealth();
-    status.mcp = "up";
+    status.superset = "up";
   } catch {}
 
   try {
@@ -23,7 +23,7 @@ export async function GET() {
 
   status.openrouter = env.OPENROUTER_API_KEY ? "configured" : "missing";
   const allOk =
-    status.mcp === "up" && status.redis === "up" && status.openrouter === "configured";
+    status.superset === "up" && status.redis === "up" && status.openrouter === "configured";
 
   return NextResponse.json({ ok: allOk, ...status }, { status: allOk ? 200 : 503 });
 }

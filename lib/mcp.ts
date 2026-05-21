@@ -1,4 +1,10 @@
-import { mintMcpToken } from "./jwt";
+// Superset REST API client.
+//
+// Named McpClient for historical reasons (originally backed by SIP-187 MCP
+// service). The SIP-187 PoC wasn't actually shipped in apache/superset:6.0.0,
+// so this implementation talks to Superset's REST API directly. Public surface
+// is preserved so route handlers don't need to change.
+
 import { env } from "./env";
 
 export class McpError extends Error {
@@ -7,85 +13,202 @@ export class McpError extends Error {
   }
 }
 
+type SupersetAuth = { accessToken: string; csrfToken: string };
+
 export class McpClient {
-  private id = 0;
+  private auth: SupersetAuth | null = null;
   private timeoutMs = 15_000;
 
-  async callTool<T = unknown>(name: string, args: Record<string, unknown> = {}): Promise<T> {
-    return this.withRetry(async () => {
-      const token = await mintMcpToken("rda-insights-backend");
-      const ctl = new AbortController();
-      const timer = setTimeout(() => ctl.abort(), this.timeoutMs);
-      try {
-        const res = await fetch(`${env.MCP_INTERNAL_URL}/mcp`, {
-          method: "POST",
-          signal: ctl.signal,
-          headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: ++this.id,
-            method: "tools/call",
-            params: { name, arguments: args },
-          }),
-        });
-        if (res.status >= 500) throw new McpError(res.status, `MCP ${res.status}`);
-        const json = (await res.json()) as {
-          result?: { content: { type: string; text: string }[] };
-          error?: { code: number; message: string };
-        };
-        if (json.error) throw new McpError(json.error.code, json.error.message);
-        const text = json.result?.content?.[0]?.text;
-        if (!text) throw new McpError(undefined, "MCP returned empty content");
-        try {
-          return JSON.parse(text) as T;
-        } catch {
-          return text as unknown as T;
-        }
-      } finally {
-        clearTimeout(timer);
-      }
-    });
+  private get baseUrl(): string {
+    return env.SUPERSET_INTERNAL_URL ?? env.SUPERSET_URL;
   }
 
-  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  private async login(): Promise<SupersetAuth> {
+    const loginRes = await fetch(`${this.baseUrl}/api/v1/security/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        username: env.SUPERSET_USERNAME,
+        password: env.SUPERSET_PASSWORD,
+        provider: "db",
+        refresh: true,
+      }),
+    });
+    if (!loginRes.ok) {
+      throw new McpError(loginRes.status, `Superset login failed (${loginRes.status})`);
+    }
+    const loginJson = (await loginRes.json()) as { access_token: string };
+    const accessToken = loginJson.access_token;
+
+    const csrfRes = await fetch(`${this.baseUrl}/api/v1/security/csrf_token`, {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!csrfRes.ok) {
+      throw new McpError(csrfRes.status, `Superset csrf_token failed (${csrfRes.status})`);
+    }
+    const csrfJson = (await csrfRes.json()) as { result: string };
+    return { accessToken, csrfToken: csrfJson.result };
+  }
+
+  private async ensureAuth(): Promise<SupersetAuth> {
+    if (!this.auth) this.auth = await this.login();
+    return this.auth;
+  }
+
+  private async fetchJson<T>(
+    path: string,
+    init: RequestInit = {},
+    retryOn401: boolean = true
+  ): Promise<T> {
+    const auth = await this.ensureAuth();
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), this.timeoutMs);
     try {
-      return await fn();
-    } catch (e) {
-      if (e instanceof McpError && (e.code === undefined || e.code >= 500)) {
-        await new Promise((r) => setTimeout(r, 300));
-        return await fn();
+      const res = await fetch(`${this.baseUrl}${path}`, {
+        ...init,
+        signal: ctl.signal,
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${auth.accessToken}`,
+          "x-csrftoken": auth.csrfToken,
+          referer: this.baseUrl,
+          ...(init.headers || {}),
+        },
+      });
+      if (res.status === 401 && retryOn401) {
+        this.auth = null;
+        return this.fetchJson(path, init, false);
       }
-      throw e;
+      if (res.status >= 500) {
+        throw new McpError(res.status, `Superset ${res.status}`);
+      }
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new McpError(res.status, `Superset ${res.status}: ${body.slice(0, 200)}`);
+      }
+      return (await res.json()) as T;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  listDashboards = () => this.callTool<{ id: number; dashboard_title: string }[]>("list_dashboards");
-  getDashboard = (id: number) => this.callTool<unknown>("get_dashboard", { dashboard_id: id });
-  getDashboardCharts = (id: number) =>
-    this.callTool<{ id: number; slice_name: string }[]>("get_dashboard_charts", { dashboard_id: id });
-  getChart = (id: number) =>
-    this.callTool<{ slice_name: string; viz_type: string; datasource_id: number; params: unknown }>(
-      "get_chart",
-      { chart_id: id }
-    );
-  getChartData = (id: number) =>
-    this.callTool<{ columns: string[]; rows: Record<string, unknown>[] }>("get_chart_data", {
-      chart_id: id,
+  async listDashboards(): Promise<{ id: number; dashboard_title: string }[]> {
+    const r = await this.fetchJson<{
+      result: { id: number; dashboard_title: string }[];
+    }>("/api/v1/dashboard/?q=(page_size:100)");
+    return r.result.map((d) => ({ id: d.id, dashboard_title: d.dashboard_title }));
+  }
+
+  getDashboard = (id: number) => this.fetchJson<unknown>(`/api/v1/dashboard/${id}`);
+
+  async getDashboardCharts(id: number): Promise<{ id: number; slice_name: string }[]> {
+    const r = await this.fetchJson<{
+      result: { id: number; slice_name: string }[];
+    }>(`/api/v1/dashboard/${id}/charts`);
+    return r.result.map((c) => ({ id: c.id, slice_name: c.slice_name }));
+  }
+
+  async getChart(
+    id: number
+  ): Promise<{ slice_name: string; viz_type: string; datasource_id: number; params: unknown }> {
+    const r = await this.fetchJson<{
+      result: {
+        slice_name: string;
+        viz_type: string;
+        datasource_id: number;
+        params: string | null;
+      };
+    }>(`/api/v1/chart/${id}`);
+    return {
+      slice_name: r.result.slice_name,
+      viz_type: r.result.viz_type,
+      datasource_id: r.result.datasource_id,
+      params: r.result.params ? safeJsonParse(r.result.params) : {},
+    };
+  }
+
+  async getChartData(
+    id: number
+  ): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
+    const r = await this.fetchJson<{
+      result: { colnames?: string[]; data?: Record<string, unknown>[] }[];
+    }>(`/api/v1/chart/${id}/data?force=false`);
+    const slice = r.result?.[0];
+    return {
+      columns: slice?.colnames ?? [],
+      rows: slice?.data ?? [],
+    };
+  }
+
+  async getDatasetColumns(
+    id: number
+  ): Promise<{ column_name: string; type: string }[]> {
+    const r = await this.fetchJson<{
+      result: { columns: { column_name: string; type: string | null }[] };
+    }>(`/api/v1/dataset/${id}`);
+    return r.result.columns.map((c) => ({ column_name: c.column_name, type: c.type ?? "" }));
+  }
+
+  async createGuestToken(
+    dashboardId: number,
+    ttl: number = 300
+  ): Promise<{ token: string }> {
+    void ttl; // Superset controls TTL via GUEST_TOKEN_JWT_EXP_SECONDS config
+    const r = await this.fetchJson<{ token: string }>("/api/v1/security/guest_token/", {
+      method: "POST",
+      body: JSON.stringify({
+        user: { username: "viewer", first_name: "Guest", last_name: "Viewer" },
+        resources: [{ type: "dashboard", id: String(dashboardId) }],
+        rls: [],
+      }),
     });
-  getDatasetColumns = (id: number) =>
-    this.callTool<{ column_name: string; type: string }[]>("get_dataset_columns", { dataset_id: id });
-  createGuestToken = (dashboardId: number, ttl: number = 300) =>
-    this.callTool<{ token: string }>("create_guest_token", {
-      dashboard_id: dashboardId,
-      username: "viewer",
-      ttl_seconds: ttl,
+    return { token: r.token };
+  }
+
+  async executeSql(
+    databaseId: number,
+    sql: string,
+    schema?: string,
+    limit: number = 100
+  ): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
+    const r = await this.fetchJson<{
+      data?: Record<string, unknown>[];
+      columns?: { name: string }[];
+    }>("/api/v1/sqllab/execute/", {
+      method: "POST",
+      body: JSON.stringify({
+        client_id: `rda-${Date.now()}`,
+        database_id: databaseId,
+        sql,
+        schema,
+        queryLimit: limit,
+        runAsync: false,
+        select_as_cta: false,
+      }),
     });
-  executeSql = (databaseId: number, sql: string, schema?: string, limit: number = 100) =>
-    this.callTool<{ columns: string[]; rows: Record<string, unknown>[] }>("execute_sql", {
-      database_id: databaseId,
-      sql,
-      schema,
-      limit,
-    });
-  getHealth = () => this.callTool<{ status: string }>("get_health");
+    return {
+      columns: (r.columns ?? []).map((c) => c.name),
+      rows: r.data ?? [],
+    };
+  }
+
+  async getHealth(): Promise<{ status: string }> {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 5000);
+    try {
+      const res = await fetch(`${this.baseUrl}/health`, { signal: ctl.signal });
+      if (!res.ok) throw new McpError(res.status, `Superset health ${res.status}`);
+      return { status: "ok" };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+function safeJsonParse(s: string): unknown {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return {};
+  }
 }

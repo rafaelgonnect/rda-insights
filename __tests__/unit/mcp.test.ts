@@ -9,18 +9,29 @@ beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
-describe("McpClient", () => {
-  it("listDashboards returns parsed result", async () => {
+function authHandlers() {
+  return [
+    http.post("http://localhost:8088/api/v1/security/login", () =>
+      HttpResponse.json({ access_token: "test-access-token" })
+    ),
+    http.get("http://localhost:8088/api/v1/security/csrf_token", ({ request }) => {
+      const auth = request.headers.get("authorization");
+      if (auth !== "Bearer test-access-token") {
+        return new HttpResponse(null, { status: 401 });
+      }
+      return HttpResponse.json({ result: "test-csrf-token" });
+    }),
+  ];
+}
+
+describe("McpClient (Superset REST)", () => {
+  it("listDashboards logs in, fetches CSRF, then returns parsed result", async () => {
     server.use(
-      http.post("http://localhost:5008/mcp", async ({ request }) => {
-        const auth = request.headers.get("authorization");
-        expect(auth).toMatch(/^Bearer eyJ/);
+      ...authHandlers(),
+      http.get("http://localhost:8088/api/v1/dashboard/", ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("Bearer test-access-token");
         return HttpResponse.json({
-          jsonrpc: "2.0",
-          id: 1,
-          result: {
-            content: [{ type: "text", text: JSON.stringify([{ id: 1, dashboard_title: "Demo" }]) }],
-          },
+          result: [{ id: 1, dashboard_title: "Demo" }],
         });
       })
     );
@@ -29,26 +40,52 @@ describe("McpClient", () => {
     expect(r).toEqual([{ id: 1, dashboard_title: "Demo" }]);
   });
 
-  it("throws on MCP error response", async () => {
+  it("throws McpError on 4xx", async () => {
     server.use(
-      http.post("http://localhost:5008/mcp", () =>
-        HttpResponse.json({ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "boom" } })
+      ...authHandlers(),
+      http.get("http://localhost:8088/api/v1/dashboard/", () =>
+        HttpResponse.json({ message: "forbidden" }, { status: 403 })
       )
     );
     const c = new McpClient();
-    await expect(c.listDashboards()).rejects.toThrow(/boom/);
+    await expect(c.listDashboards()).rejects.toThrow(/403/);
   });
 
-  it("retries once on 5xx then throws", async () => {
-    let calls = 0;
+  it("re-logins once on 401 then succeeds", async () => {
+    let getCalls = 0;
     server.use(
-      http.post("http://localhost:5008/mcp", () => {
-        calls++;
-        return new HttpResponse("upstream error", { status: 502 });
+      ...authHandlers(),
+      http.get("http://localhost:8088/api/v1/dashboard/", () => {
+        getCalls++;
+        if (getCalls === 1) return new HttpResponse(null, { status: 401 });
+        return HttpResponse.json({ result: [] });
       })
     );
     const c = new McpClient();
-    await expect(c.listDashboards()).rejects.toThrow();
-    expect(calls).toBe(2);
+    const r = await c.listDashboards();
+    expect(r).toEqual([]);
+    expect(getCalls).toBe(2);
+  });
+
+  it("getChart parses params field as JSON", async () => {
+    server.use(
+      ...authHandlers(),
+      http.get("http://localhost:8088/api/v1/chart/42", () =>
+        HttpResponse.json({
+          result: {
+            slice_name: "X",
+            viz_type: "table",
+            datasource_id: 1,
+            params: JSON.stringify({ groupby: ["a"] }),
+          },
+        })
+      )
+    );
+    const c = new McpClient();
+    const r = await c.getChart(42);
+    expect(r.slice_name).toBe("X");
+    expect(r.viz_type).toBe("table");
+    expect(r.datasource_id).toBe(1);
+    expect(r.params).toEqual({ groupby: ["a"] });
   });
 });

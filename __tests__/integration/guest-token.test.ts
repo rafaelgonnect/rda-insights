@@ -7,17 +7,23 @@ beforeAll(() => server.listen({ onUnhandledRequest: "warn" }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
+function authHandlers() {
+  return [
+    http.post("http://localhost:8088/api/v1/security/login", () =>
+      HttpResponse.json({ access_token: "test-access-token" })
+    ),
+    http.get("http://localhost:8088/api/v1/security/csrf_token", () =>
+      HttpResponse.json({ result: "test-csrf-token" })
+    ),
+  ];
+}
+
 describe("POST /api/guest-token", () => {
-  it("returns token from MCP", async () => {
+  it("returns token from Superset", async () => {
     server.use(
-      http.post("http://localhost:5008/mcp", () =>
-        HttpResponse.json({
-          jsonrpc: "2.0",
-          id: 1,
-          result: {
-            content: [{ type: "text", text: JSON.stringify({ token: "abc.def.ghi" }) }],
-          },
-        })
+      ...authHandlers(),
+      http.post("http://localhost:8088/api/v1/security/guest_token/", () =>
+        HttpResponse.json({ token: "abc.def.ghi" })
       )
     );
     const { POST } = await import("@/app/api/guest-token/route");

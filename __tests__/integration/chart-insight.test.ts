@@ -9,14 +9,16 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 beforeEach(() => _reset());
 
-// Shared in-memory Redis store across all tests in this file.
-// Exposed via vi.hoisted so we can clear it between tests.
 const { redisStore } = vi.hoisted(() => ({ redisStore: new Map<string, string>() }));
 vi.mock("ioredis", () => {
   function MockRedis() {
     return {
       async get(k: string) {
         return redisStore.get(k) ?? null;
+      },
+      async set(k: string, v: string) {
+        redisStore.set(k, v);
+        return "OK";
       },
       async setex(k: string, _ttl: number, v: string) {
         redisStore.set(k, v);
@@ -57,22 +59,35 @@ vi.mock("openai", () => ({
   },
 }));
 
-function mockMcp() {
+function mockSuperset(rows: Record<string, unknown>[] = [{ a: 1 }]) {
   server.use(
-    http.post("http://localhost:5008/mcp", async ({ request }) => {
-      const body = (await request.json()) as { params: { name: string } };
-      const map: Record<string, unknown> = {
-        get_chart: { slice_name: "X", viz_type: "table", datasource_id: 1, params: {} },
-        get_dataset_columns: [{ column_name: "a", type: "INT" }],
-        get_chart_data: { columns: ["a"], rows: [{ a: 1 }] },
-        get_health: { status: "ok" },
-      };
-      return HttpResponse.json({
-        jsonrpc: "2.0",
-        id: 1,
-        result: { content: [{ type: "text", text: JSON.stringify(map[body.params.name]) }] },
-      });
-    })
+    http.post("http://localhost:8088/api/v1/security/login", () =>
+      HttpResponse.json({ access_token: "test-access-token" })
+    ),
+    http.get("http://localhost:8088/api/v1/security/csrf_token", () =>
+      HttpResponse.json({ result: "test-csrf-token" })
+    ),
+    http.get("http://localhost:8088/api/v1/chart/42", () =>
+      HttpResponse.json({
+        result: {
+          slice_name: "X",
+          viz_type: "table",
+          datasource_id: 1,
+          params: JSON.stringify({}),
+        },
+      })
+    ),
+    http.get("http://localhost:8088/api/v1/dataset/1", () =>
+      HttpResponse.json({
+        result: { columns: [{ column_name: "a", type: "INT" }] },
+      })
+    ),
+    http.get("http://localhost:8088/api/v1/chart/42/data", () =>
+      HttpResponse.json({
+        result: [{ colnames: ["a"], data: rows }],
+      })
+    ),
+    http.get("http://localhost:8088/health", () => HttpResponse.json({ status: "ok" }))
   );
 }
 
@@ -90,7 +105,7 @@ async function readSseBody(res: Response): Promise<string> {
 
 describe("POST /api/insights/chart/[id]", () => {
   it("streams insight on happy path", async () => {
-    mockMcp();
+    mockSuperset();
     const { POST } = await import("@/app/api/insights/chart/[id]/route");
     const req = new Request("http://x/api/insights/chart/42", {
       method: "POST",
@@ -105,7 +120,7 @@ describe("POST /api/insights/chart/[id]", () => {
   });
 
   it("returns 429 after 30 calls per IP", async () => {
-    mockMcp();
+    mockSuperset();
     const { POST } = await import("@/app/api/insights/chart/[id]/route");
     for (let i = 0; i < 30; i++) {
       const r = await POST(
@@ -116,7 +131,7 @@ describe("POST /api/insights/chart/[id]", () => {
         }),
         { params: Promise.resolve({ id: "42" }) }
       );
-      await readSseBody(r); // drain
+      await readSseBody(r);
     }
     const r = await POST(
       new Request("http://x/api/insights/chart/42", {
@@ -130,8 +145,7 @@ describe("POST /api/insights/chart/[id]", () => {
   });
 
   it("returns 429 when monthly cost cap is reached", async () => {
-    mockMcp();
-    // pre-fill the cost counter past the cap
+    mockSuperset();
     const Redis = (await import("ioredis")).default as unknown as new () => {
       incrbyfloat: (k: string, n: number) => Promise<string>;
     };
@@ -153,21 +167,7 @@ describe("POST /api/insights/chart/[id]", () => {
   });
 
   it("short-circuits on empty chart data", async () => {
-    server.use(
-      http.post("http://localhost:5008/mcp", async ({ request }) => {
-        const body = (await request.json()) as { params: { name: string } };
-        const map: Record<string, unknown> = {
-          get_chart: { slice_name: "X", viz_type: "table", datasource_id: 1, params: {} },
-          get_dataset_columns: [{ column_name: "a", type: "INT" }],
-          get_chart_data: { columns: ["a"], rows: [] },
-        };
-        return HttpResponse.json({
-          jsonrpc: "2.0",
-          id: 1,
-          result: { content: [{ type: "text", text: JSON.stringify(map[body.params.name]) }] },
-        });
-      })
-    );
+    mockSuperset([]);
     const { POST } = await import("@/app/api/insights/chart/[id]/route");
     const res = await POST(
       new Request("http://x/api/insights/chart/42", {
