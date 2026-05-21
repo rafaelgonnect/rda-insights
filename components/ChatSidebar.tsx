@@ -1,6 +1,5 @@
 "use client";
 import {
-  useState,
   useRef,
   useEffect,
   useCallback,
@@ -10,47 +9,19 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { AlertCircle, Loader2, Send, Square } from "lucide-react";
-import { streamPostSse } from "@/lib/sse-client";
+import { AlertCircle, Send, Square } from "lucide-react";
+import { useChatSession } from "@/lib/use-chat-session";
 import {
   ChatMessageItem,
-  ChatMessageType,
-  ToolCallEvent,
 } from "@/components/ChatMessage";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type HistoryEntry = { role: "user" | "assistant"; content: string };
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const EXAMPLE_PROMPTS = [
   "Resuma este painel",
   "Quais gráficos têm filtro de ano?",
   "Mostre uma amostra do dataset principal",
 ];
-
-const MAX_HISTORY = 20;
-const STORAGE_KEY = (id: number) => `chat:${id}`;
-
-function loadHistory(dashboardId: number): ChatMessageType[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY(dashboardId));
-    if (!raw) return [];
-    return JSON.parse(raw) as ChatMessageType[];
-  } catch {
-    return [];
-  }
-}
-
-function saveHistory(dashboardId: number, messages: ChatMessageType[]) {
-  if (typeof window === "undefined") return;
-  try {
-    const keep = messages.slice(-MAX_HISTORY);
-    localStorage.setItem(STORAGE_KEY(dashboardId), JSON.stringify(keep));
-  } catch {
-    // quota exceeded — ignore
-  }
-}
 
 // ─── ChatSidebar ──────────────────────────────────────────────────────────────
 
@@ -63,27 +34,20 @@ export function ChatSidebar({
   charts: { id: number; slice_name: string }[];
   pendingFilter: { chartId: number; filterValues: Record<string, unknown> } | null;
 }) {
-  const [messages, setMessages] = useState<ChatMessageType[]>([]);
-  const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const session = useChatSession({
+    mode: "dashboard",
+    dashboardId,
+    filterContext: pendingFilter?.filterValues ?? null,
+    storageKey: `chat:dashboard:${dashboardId}`,
+  });
 
-  const abortRef = useRef<AbortController | null>(null);
+  const { messages, input, setInput, streaming, error, clearError, submit, stop, clear, confirm } = session;
+
+  // DOM-specific refs (not in hook)
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const isPinnedRef = useRef(true);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  // Hydrate from localStorage on mount
-  useEffect(() => {
-    const stored = loadHistory(dashboardId);
-    if (stored.length > 0) setMessages(stored);
-  }, [dashboardId]);
-
-  // Persist on change
-  useEffect(() => {
-    if (messages.length > 0) saveHistory(dashboardId, messages);
-  }, [messages, dashboardId]);
 
   // Auto-scroll to bottom when pinned
   useEffect(() => {
@@ -116,21 +80,18 @@ export function ChatSidebar({
   function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (!streaming && input.trim()) void submit(input.trim());
+      if (!streaming && input.trim()) {
+        isPinnedRef.current = true;
+        void submit(input.trim());
+        if (textareaRef.current) textareaRef.current.style.height = "auto";
+      }
     }
   }
 
-  function clearChat() {
-    abortRef.current?.abort();
-    setMessages([]);
-    setError(null);
-    setStreaming(false);
-    if (typeof window !== "undefined")
-      localStorage.removeItem(STORAGE_KEY(dashboardId));
-  }
-
-  function stopStreaming() {
-    abortRef.current?.abort();
+  function handleSubmitClick() {
+    isPinnedRef.current = true;
+    void submit(input.trim());
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
   }
 
   function fillFromFilter() {
@@ -140,283 +101,6 @@ export function ChatSidebar({
       .join(", ");
     setInput(`Explica essa seleção: ${vals}`);
     textareaRef.current?.focus();
-  }
-
-  async function submit(text: string) {
-    if (!text.trim() || streaming) return;
-    setInput("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-    setError(null);
-    isPinnedRef.current = true;
-
-    const userMsg: ChatMessageType = {
-      role: "user",
-      content: text,
-      id: crypto.randomUUID(),
-      createdAt: Date.now(),
-    };
-
-    const assistantId = crypto.randomUUID();
-    const assistantMsg: ChatMessageType = {
-      role: "assistant",
-      content: "",
-      id: assistantId,
-      createdAt: Date.now(),
-      toolCalls: [],
-    };
-
-    setMessages((prev) => [...prev, userMsg, assistantMsg]);
-    setStreaming(true);
-
-    const ctl = new AbortController();
-    abortRef.current = ctl;
-
-    // Build history from current messages (before this turn)
-    const historyEntries: HistoryEntry[] = messages
-      .filter((m): m is Extract<ChatMessageType, { role: "user" | "assistant" }> =>
-        m.role === "user" || m.role === "assistant"
-      )
-      .slice(-MAX_HISTORY)
-      .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-
-    const requestBody = {
-      message: text,
-      dashboard_id: dashboardId,
-      filter_context: pendingFilter?.filterValues ?? undefined,
-      history: historyEntries,
-    };
-
-    // Helpers to mutate the assistant message in state
-    function appendDelta(delta: string) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.role === "assistant" && m.id === assistantId
-            ? { ...m, content: m.content + delta }
-            : m
-        )
-      );
-    }
-
-    function upsertToolCall(tc: Partial<ToolCallEvent> & { id: string }) {
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.role !== "assistant" || m.id !== assistantId) return m;
-          const existing = m.toolCalls.find((t) => t.id === tc.id);
-          if (existing) {
-            return {
-              ...m,
-              toolCalls: m.toolCalls.map((t) =>
-                t.id === tc.id ? { ...t, ...tc } : t
-              ),
-            };
-          }
-          // new tool call
-          const newTc: ToolCallEvent = {
-            id: tc.id,
-            name: tc.name ?? "",
-            args: tc.args ?? {},
-            status: tc.status ?? "running",
-            durationMs: tc.durationMs,
-            resultPreview: tc.resultPreview,
-          };
-          return { ...m, toolCalls: [...m.toolCalls, newTc] };
-        })
-      );
-    }
-
-    try {
-      await streamPostSse({
-        url: "/api/chat",
-        body: requestBody,
-        signal: ctl.signal,
-        onEvent(event, data) {
-          const d = data as Record<string, unknown>;
-          if (event === "" || event === "delta") {
-            // default block → text delta
-            if (typeof d.text === "string") appendDelta(d.text);
-          } else if (event === "tool_call_start") {
-            upsertToolCall({
-              id: String(d.id),
-              name: String(d.name),
-              args: (d.args as Record<string, unknown>) ?? {},
-              status: "running",
-            });
-          } else if (event === "tool_call_end") {
-            upsertToolCall({
-              id: String(d.id),
-              status: d.ok ? "ok" : "error",
-              durationMs: typeof d.durationMs === "number" ? d.durationMs : undefined,
-              resultPreview: typeof d.resultPreview === "string" ? d.resultPreview : undefined,
-            });
-          } else if (event === "tool_pending_confirmation") {
-            // LLM wants to call a write tool — push a confirmation card
-            const confirmMsg: ChatMessageType = {
-              role: "tool_confirmation",
-              id: crypto.randomUUID(),
-              pendingId: String(d.pending_id),
-              toolCallId: String(d.tool_call_id),
-              name: String(d.name),
-              args: (d.args as Record<string, unknown>) ?? {},
-              status: "pending",
-            };
-            setMessages((prev) => [...prev, confirmMsg]);
-            setStreaming(false); // wait for user decision
-          } else if (event === "done") {
-            console.log("[chat] done", d);
-          }
-        },
-        onClose() {
-          setStreaming(false);
-        },
-      });
-    } catch (e) {
-      if ((e as Error).name === "AbortError") {
-        setStreaming(false);
-        return;
-      }
-      setError(String(e));
-      setStreaming(false);
-    }
-  }
-
-  // ─── Confirmation handler ──────────────────────────────────────────────────
-
-  async function handleConfirm(pendingId: string, decision: "apply" | "cancel") {
-    // Update the confirmation card status immediately
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.role === "tool_confirmation" && m.pendingId === pendingId
-          ? { ...m, status: decision === "apply" ? "applying" : "canceled" }
-          : m
-      )
-    );
-
-    if (decision === "cancel") {
-      // POST to confirm endpoint with cancel decision — still stream the LLM continuation
-      // (the LLM will acknowledge the cancellation)
-    }
-
-    // Create a new assistant message for the continuation
-    const assistantId = crypto.randomUUID();
-    const assistantMsg: ChatMessageType = {
-      role: "assistant",
-      content: "",
-      id: assistantId,
-      createdAt: Date.now(),
-      toolCalls: [],
-    };
-    setMessages((prev) => [...prev, assistantMsg]);
-    setStreaming(true);
-    isPinnedRef.current = true;
-
-    const ctl = new AbortController();
-    abortRef.current = ctl;
-
-    function appendDelta(delta: string) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.role === "assistant" && m.id === assistantId
-            ? { ...m, content: m.content + delta }
-            : m
-        )
-      );
-    }
-
-    function upsertToolCall(tc: Partial<ToolCallEvent> & { id: string }) {
-      setMessages((prev) =>
-        prev.map((m) => {
-          if (m.role !== "assistant" || m.id !== assistantId) return m;
-          const existing = m.toolCalls.find((t) => t.id === tc.id);
-          if (existing) {
-            return {
-              ...m,
-              toolCalls: m.toolCalls.map((t) =>
-                t.id === tc.id ? { ...t, ...tc } : t
-              ),
-            };
-          }
-          const newTc: ToolCallEvent = {
-            id: tc.id,
-            name: tc.name ?? "",
-            args: tc.args ?? {},
-            status: tc.status ?? "running",
-            durationMs: tc.durationMs,
-            resultPreview: tc.resultPreview,
-          };
-          return { ...m, toolCalls: [...m.toolCalls, newTc] };
-        })
-      );
-    }
-
-    try {
-      await streamPostSse({
-        url: "/api/chat/confirm",
-        body: { pending_id: pendingId, decision },
-        signal: ctl.signal,
-        onEvent(event, data) {
-          const d = data as Record<string, unknown>;
-          if (event === "" || event === "delta") {
-            if (typeof d.text === "string") appendDelta(d.text);
-          } else if (event === "tool_call_start") {
-            upsertToolCall({
-              id: String(d.id),
-              name: String(d.name),
-              args: (d.args as Record<string, unknown>) ?? {},
-              status: "running",
-            });
-          } else if (event === "tool_call_end") {
-            upsertToolCall({
-              id: String(d.id),
-              status: d.ok ? "ok" : "error",
-              durationMs: typeof d.durationMs === "number" ? d.durationMs : undefined,
-              resultPreview: typeof d.resultPreview === "string" ? d.resultPreview : undefined,
-            });
-          } else if (event === "tool_pending_confirmation") {
-            // Another write tool — push a new confirmation card
-            const confirmMsg: ChatMessageType = {
-              role: "tool_confirmation",
-              id: crypto.randomUUID(),
-              pendingId: String(d.pending_id),
-              toolCallId: String(d.tool_call_id),
-              name: String(d.name),
-              args: (d.args as Record<string, unknown>) ?? {},
-              status: "pending",
-            };
-            setMessages((prev) => [...prev, confirmMsg]);
-            setStreaming(false); // pause until user acts on the new card
-          } else if (event === "done") {
-            // Mark the confirmation card as applied (if it was "applying")
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.role === "tool_confirmation" && m.pendingId === pendingId && m.status === "applying"
-                  ? { ...m, status: "applied" }
-                  : m
-              )
-            );
-            console.log("[chat.confirm] done", d);
-          }
-        },
-        onClose() {
-          setStreaming(false);
-        },
-      });
-    } catch (e) {
-      if ((e as Error).name === "AbortError") {
-        setStreaming(false);
-        return;
-      }
-      // Mark the confirmation card as error
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.role === "tool_confirmation" && m.pendingId === pendingId
-            ? { ...m, status: "error", errorMessage: String(e) }
-            : m
-        )
-      );
-      setStreaming(false);
-    }
   }
 
   const hasMessages = messages.filter((m) => m.role !== "tool_activity").length > 0;
@@ -432,7 +116,7 @@ export function ChatSidebar({
         <Button
           size="xs"
           variant="ghost"
-          onClick={clearChat}
+          onClick={clear}
           disabled={streaming}
           className="text-xs"
         >
@@ -467,7 +151,6 @@ export function ChatSidebar({
       <ScrollArea className="flex-1 min-h-0">
         <div
           ref={(el) => {
-            // Attach scroll listener to the inner viewport element
             if (el) {
               const vp = el.querySelector<HTMLDivElement>(
                 "[data-slot='scroll-area-viewport']"
@@ -509,7 +192,7 @@ export function ChatSidebar({
                     : (msg as { id: string }).id
                 }
                 msg={msg}
-                onConfirm={handleConfirm}
+                onConfirm={confirm}
               />
             ))}
 
@@ -522,7 +205,7 @@ export function ChatSidebar({
                     size="sm"
                     variant="ghost"
                     className="mt-2 h-7"
-                    onClick={() => setError(null)}
+                    onClick={clearError}
                   >
                     Fechar
                   </Button>
@@ -551,7 +234,7 @@ export function ChatSidebar({
           <Button
             size="icon-sm"
             variant="outline"
-            onClick={stopStreaming}
+            onClick={stop}
             title="Parar"
           >
             <Square className="size-3.5" />
@@ -560,7 +243,7 @@ export function ChatSidebar({
           <Button
             size="icon-sm"
             disabled={!input.trim()}
-            onClick={() => void submit(input.trim())}
+            onClick={handleSubmitClick}
             title="Enviar (Ctrl+Enter)"
           >
             <Send className="size-3.5" />

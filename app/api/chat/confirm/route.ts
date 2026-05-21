@@ -65,10 +65,27 @@ export async function POST(req: Request) {
     filterContext: pending.filterContext,
   };
 
+  // Side events queue for dashboard_created
+  const pendingSideEvents: { event: string; data: string }[] = [];
+
   const execTool = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
     const result = await executeTool(name, args, ctx);
     if (!result.ok) {
       return { error: result.error };
+    }
+    if (
+      name === "create_dashboard" &&
+      result.result &&
+      typeof result.result === "object" &&
+      "id" in result.result
+    ) {
+      pendingSideEvents.push({
+        event: "dashboard_created",
+        data: JSON.stringify({
+          id: (result.result as Record<string, unknown>).id,
+          title: args.dashboard_title,
+        }),
+      });
     }
     return result.result;
   };
@@ -83,11 +100,32 @@ export async function POST(req: Request) {
       const r = await executeTool(pending.toolName, pending.toolArgs, ctx);
       if (r.ok) {
         toolResult = { ok: true, result: r.result };
+        // Detect create_dashboard in the confirmed tool itself
+        if (
+          pending.toolName === "create_dashboard" &&
+          r.result &&
+          typeof r.result === "object" &&
+          "id" in r.result
+        ) {
+          pendingSideEvents.push({
+            event: "dashboard_created",
+            data: JSON.stringify({
+              id: (r.result as Record<string, unknown>).id,
+              title: pending.toolArgs.dashboard_title,
+            }),
+          });
+        }
       } else {
         toolResult = { ok: false, error: r.error };
       }
     } else {
       toolResult = { ok: false, error: "User canceled this action", canceled: true };
+    }
+
+    // Flush any pending side events from the confirmed tool before streaming the LLM
+    while (pendingSideEvents.length > 0) {
+      const sideEv = pendingSideEvents.shift()!;
+      yield { event: sideEv.event, data: sideEv.data };
     }
 
     let usage = { input_tokens: 0, output_tokens: 0 };
@@ -122,6 +160,11 @@ export async function POST(req: Request) {
             resultPreview: ev.resultPreview,
           }),
         };
+        // Flush any pending side events from tools called after continuation
+        while (pendingSideEvents.length > 0) {
+          const sideEv = pendingSideEvents.shift()!;
+          yield { event: sideEv.event, data: sideEv.data };
+        }
       } else if (ev.type === "tool_pending_confirmation") {
         // Another write tool requested — save state and pause again
         const { randomUUID } = await import("crypto");

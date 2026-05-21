@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 
 const Body = z.object({
   message: z.string().min(1).max(2000),
+  mode: z.enum(["dashboard", "create"]).optional().default("dashboard"),
   dashboard_id: z.number().int().positive().optional(),
   filter_context: z.record(z.string(), z.unknown()).optional(),
   history: z
@@ -29,7 +30,33 @@ const Body = z.object({
     .default([]),
 });
 
-function buildSystemPrompt(dashboardId?: number, filterContext?: Record<string, unknown>): string {
+function buildSystemPrompt(
+  mode: "dashboard" | "create",
+  dashboardId?: number,
+  filterContext?: Record<string, unknown>
+): string {
+  if (mode === "create") {
+    return `Você é um assistente de criação de dashboards no Apache Superset. O usuário quer
+CRIAR algo novo. Seu fluxo recomendado é:
+
+1. Entenda a intenção (que assunto/perguntas?). Faça no MÁXIMO 1 pergunta
+   clarificadora antes de avançar — não trave o usuário em interrogatório.
+2. Use find_datasets para encontrar datasets relevantes ao tema. Mostre 2-3
+   opções e pergunte (ou escolha o mais óbvio se for inequívoco).
+3. Use get_dataset_columns + get_dataset_sample para entender o dataset.
+4. Proponha 3-6 gráficos (KPIs + visualizações) com nome, tipo (big_number,
+   bar, line, table, etc.), dimensões e métricas. Liste-os pro usuário.
+5. Quando o usuário aprovar (ou se você tiver sinal verde claro), crie:
+   - create_dashboard (peça aprovação no card de confirmação)
+   - create_simple_chart para cada gráfico
+   - attach_charts_to_dashboard com todos os ids
+   - build_dashboard_layout com larguras (12 colunas, height em unidades de 100px)
+6. Confirme o sucesso e diga ao usuário que pode abrir o dashboard.
+
+Português brasileiro, conciso. Use markdown leve. Sempre cite dados reais.
+Não invente nomes de colunas — sempre confirme via tool.`;
+  }
+
   const dashLabel = dashboardId ? `#${dashboardId}` : "(nenhum dashboard ativo)";
   const filterLine =
     filterContext && Object.keys(filterContext).length > 0
@@ -72,10 +99,10 @@ export async function POST(req: Request) {
     });
   }
 
-  const { message, dashboard_id, filter_context, history } = body;
+  const { message, mode, dashboard_id, filter_context, history } = body;
 
   return sseStream(async function* () {
-    const systemPrompt = buildSystemPrompt(dashboard_id, filter_context);
+    const systemPrompt = buildSystemPrompt(mode, dashboard_id, filter_context);
 
     type HistoryMsg = { role: "user" | "assistant"; content: string };
     const messages: Array<{ role: string; content: string }> = [
@@ -90,11 +117,28 @@ export async function POST(req: Request) {
       filterContext: filter_context,
     };
 
+    // Side events queue: emitted after tool_call_end for special tools
+    const pendingSideEvents: { event: string; data: string }[] = [];
+
     const execTool = async (name: string, args: Record<string, unknown>): Promise<unknown> => {
       const result = await executeTool(name, args, ctx);
       if (!result.ok) {
-        // Return the error as a value so the LLM can self-correct
         return { error: result.error };
+      }
+      // Detect successful create_dashboard and queue side event
+      if (
+        name === "create_dashboard" &&
+        result.result &&
+        typeof result.result === "object" &&
+        "id" in result.result
+      ) {
+        pendingSideEvents.push({
+          event: "dashboard_created",
+          data: JSON.stringify({
+            id: (result.result as Record<string, unknown>).id,
+            title: args.dashboard_title,
+          }),
+        });
       }
       return result.result;
     };
@@ -135,6 +179,11 @@ export async function POST(req: Request) {
             resultPreview: ev.resultPreview,
           }),
         };
+        // Flush any pending side events immediately after tool_call_end
+        while (pendingSideEvents.length > 0) {
+          const sideEv = pendingSideEvents.shift()!;
+          yield { event: sideEv.event, data: sideEv.data };
+        }
       } else if (ev.type === "tool_pending_confirmation") {
         // Save the conversation state to Redis so the confirm endpoint can resume
         const pendingId = randomUUID();
@@ -184,6 +233,7 @@ export async function POST(req: Request) {
     console.log(
       JSON.stringify({
         event: "chat.generated",
+        mode,
         model: settings.model,
         tokens_in: usage.input_tokens,
         tokens_out: usage.output_tokens,
