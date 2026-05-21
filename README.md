@@ -1,6 +1,6 @@
 # rda-insights
 
-AI Insights Panel for Apache Superset. A Next.js 16 app that embeds Superset dashboards via iframe and adds an AI sidebar powered by Claude Sonnet 4.6.
+AI Insights Panel for Apache Superset. A Next.js 16 app that embeds Superset dashboards via iframe and adds an AI sidebar powered by an LLM of your choice via OpenRouter (default: Claude Sonnet 4.5; swap to GPT-4o, Gemini, etc. via env var).
 
 ## What it does
 
@@ -9,7 +9,7 @@ Embeds an existing Apache Superset deployment and adds two AI features in a side
 - **Resumir grafico** — generates a 3-bullet summary of any chart on the dashboard.
 - **Explicar selecao** — when the user applies a cross-filter on the dashboard, explains what the selection means and what changed.
 
-Both features stream responses from Claude over Server-Sent Events. The app pulls chart context (queries, sample data, metadata) from a sibling MCP service (`superset-mcp`) over the internal EasyPanel network using a short-lived JWT.
+Both features stream responses from the LLM (via OpenRouter) over Server-Sent Events. The app pulls chart context (queries, sample data, metadata) from a sibling MCP service (`superset-mcp`) over the internal EasyPanel network using a short-lived JWT.
 
 ## Stack
 
@@ -19,7 +19,7 @@ Both features stream responses from Claude over Server-Sent Events. The app pull
 | Language | TypeScript |
 | Styling | Tailwind v4 + shadcn/ui |
 | Embed | `@superset-ui/embedded-sdk` |
-| LLM | `@anthropic-ai/sdk` (Claude Sonnet 4.6, streaming) |
+| LLM | `openai` SDK pointed at OpenRouter (default: Claude Sonnet 4.5, streaming) |
 | Auth (app gate) | HTTP Basic Auth via middleware |
 | Auth (MCP) | `jose` — HS256 JWT, 5 min expiry |
 | Rate limit / cost cap | `ioredis` |
@@ -43,7 +43,7 @@ Both features stream responses from Claude over Server-Sent Events. The app pull
        | streaming SSE
        v
 +--------------+
-|  Anthropic   |
+|  OpenRouter  |
 +--------------+
 ```
 
@@ -60,13 +60,13 @@ npm run dev                  # http://localhost:3000 — prompts for basic auth
 Required `.env.local` values:
 
 - `APP_USERNAME`, `APP_PASSWORD` — Basic Auth gate.
-- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` (`claude-sonnet-4-6`).
+- `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` (default `anthropic/claude-sonnet-4.5`).
 - `MCP_INTERNAL_URL` — for local dev, the public MCP domain (see `DEPLOY.md` step 2).
 - `MCP_JWT_SECRET` — must match the value in `D:\SuperSet_agent\deploy\easypanel-compose.yml`.
 - `MCP_JWT_ISSUER` (`claude-code-user`), `MCP_JWT_AUDIENCE` (`superset-mcp`).
 - `SUPERSET_URL` — public Superset URL.
 - `REDIS_URL` — `redis://localhost:6379/2` locally, `redis://redis:6379/2` on EasyPanel.
-- `MAX_USD_MONTH` — monthly Anthropic spend cap, e.g. `20`.
+- `MAX_USD_MONTH` — approximate monthly OpenRouter spend cap (USD), e.g. `20`.
 
 ### Tests
 
@@ -96,10 +96,10 @@ rda-insights/
 ├── app/                 # Next.js App Router routes + API handlers
 │   └── api/             # /api/health, /api/summarize, /api/explain, /api/dashboards
 ├── components/          # InsightsSidebar, DashboardEmbed, shadcn primitives
-├── lib/                 # mcp client, anthropic client, jwt, redis, cost cap, rate limit
+├── lib/                 # mcp client, llm client (OpenRouter), jwt, redis, cost cap, rate limit
 ├── __tests__/           # Vitest unit + integration tests (with MSW handlers)
 ├── e2e/                 # Playwright E2E smoke
-├── scripts/             # MCP/Anthropic probe scripts
+├── scripts/             # MCP probe script
 ├── proxy.ts             # (legacy proxy helper; not used in prod)
 └── ...                  # configs (next/vitest/playwright/tailwind/eslint/tsconfig)
 ```

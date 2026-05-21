@@ -38,18 +38,22 @@ vi.mock("ioredis", () => {
 });
 beforeEach(() => redisStore.clear());
 
-// Hoisted Anthropic mock — returns a stream by default
-const { streamMock } = vi.hoisted(() => ({
-  streamMock: vi.fn(() =>
+// Hoisted OpenAI (OpenRouter) mock — returns an async iterable by default
+const { createMock } = vi.hoisted(() => ({
+  createMock: vi.fn(async () =>
     (async function* () {
-      yield { type: "content_block_delta", delta: { type: "text_delta", text: "Resumo." } };
-      yield { type: "message_delta", usage: { input_tokens: 100, output_tokens: 10 } };
+      yield { id: "gen-test", choices: [{ delta: { content: "Resumo." } }] };
+      yield {
+        id: "gen-test",
+        choices: [{ delta: {} }],
+        usage: { prompt_tokens: 100, completion_tokens: 10 },
+      };
     })()
   ),
 }));
-vi.mock("@anthropic-ai/sdk", () => ({
+vi.mock("openai", () => ({
   default: class {
-    messages = { stream: streamMock };
+    chat = { completions: { create: createMock } };
   },
 }));
 

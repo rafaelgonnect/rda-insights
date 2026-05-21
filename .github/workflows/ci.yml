@@ -6,8 +6,8 @@ env:
   # Real values are injected at runtime by EasyPanel.
   APP_USERNAME: ci
   APP_PASSWORD: ci-stub-password
-  ANTHROPIC_API_KEY: sk-ci-stub-key
-  ANTHROPIC_MODEL: claude-sonnet-4-6
+  OPENROUTER_API_KEY: sk-or-v1-ci-stub-key
+  OPENROUTER_MODEL: anthropic/claude-sonnet-4.5
   MCP_INTERNAL_URL: http://localhost:5008
   MCP_JWT_SECRET: ci-stub-secret-at-least-32-chars-xx
   MCP_JWT_ISSUER: claude-code-user

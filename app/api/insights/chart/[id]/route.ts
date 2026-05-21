@@ -86,7 +86,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     const latencyLlm = Date.now() - tLlm0;
 
     await setCached(cacheKey, acc, CACHE_TTL_SEC);
-    const costUsd = calculateCost(env.ANTHROPIC_MODEL, usage.input_tokens, usage.output_tokens);
+    const costUsd = calculateCost(env.OPENROUTER_MODEL, usage.input_tokens, usage.output_tokens);
     await incrCost(month, costUsd);
 
     yield { event: "done", data: JSON.stringify({ cache_hit: false, usage, cost_usd: costUsd }) };

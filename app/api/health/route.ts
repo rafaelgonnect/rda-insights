@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const status = { mcp: "down", anthropic: "skipped", redis: "down" };
+  const status = { mcp: "down", openrouter: "skipped", redis: "down" };
 
   try {
     await new McpClient().getHealth();
@@ -21,9 +21,9 @@ export async function GET() {
     status.redis = "up";
   } catch {}
 
-  status.anthropic = env.ANTHROPIC_API_KEY ? "configured" : "missing";
+  status.openrouter = env.OPENROUTER_API_KEY ? "configured" : "missing";
   const allOk =
-    status.mcp === "up" && status.redis === "up" && status.anthropic === "configured";
+    status.mcp === "up" && status.redis === "up" && status.openrouter === "configured";
 
   return NextResponse.json({ ok: allOk, ...status }, { status: allOk ? 200 : 503 });
 }

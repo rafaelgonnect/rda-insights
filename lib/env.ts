@@ -3,8 +3,8 @@ import { z } from "zod";
 const schema = z.object({
   APP_USERNAME: z.string().min(1),
   APP_PASSWORD: z.string().min(8),
-  ANTHROPIC_API_KEY: z.string().startsWith("sk-"),
-  ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),
+  OPENROUTER_API_KEY: z.string().startsWith("sk-"),
+  OPENROUTER_MODEL: z.string().default("anthropic/claude-sonnet-4.5"),
   MCP_INTERNAL_URL: z.string().url(),
   MCP_JWT_SECRET: z.string().min(32),
   MCP_JWT_ISSUER: z.string().default("claude-code-user"),

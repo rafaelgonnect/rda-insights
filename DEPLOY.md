@@ -56,15 +56,15 @@ In the new service → **Environment** → add these one at a time:
 |---|---|---|
 | `APP_USERNAME` | `admin` | Or whatever you want as the Basic Auth user. |
 | `APP_PASSWORD` | _(generate)_ | `openssl rand -base64 24` — write it down. |
-| `ANTHROPIC_API_KEY` | `sk-ant-...` | From console.anthropic.com. |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | |
+| `OPENROUTER_API_KEY` | `sk-or-v1-...` | From https://openrouter.ai/keys. |
+| `OPENROUTER_MODEL` | `anthropic/claude-sonnet-4.5` | Any model slug at https://openrouter.ai/models. Defaults to Sonnet 4.5; swap to `openai/gpt-4o`, `google/gemini-2.5-pro`, etc. |
 | `MCP_INTERNAL_URL` | `http://superset-mcp:5008` | Internal service name. No TLS. |
 | `MCP_JWT_SECRET` | _(copy from compose)_ | **Must match** `MCP_JWT_SECRET:` on line 38 of `D:\SuperSet_agent\deploy\easypanel-compose.yml`. If they differ, every MCP call gets a 401. |
 | `MCP_JWT_ISSUER` | `claude-code-user` | |
 | `MCP_JWT_AUDIENCE` | `superset-mcp` | |
 | `SUPERSET_URL` | `https://melanibotto-rdasuperset.bdoje9.easypanel.host` | Public Superset URL — the iframe needs this. |
 | `REDIS_URL` | `redis://redis:6379/2` | DB 2 — DBs 0 and 1 are used by Superset. |
-| `MAX_USD_MONTH` | `20` | Monthly Anthropic spend cap in USD. |
+| `MAX_USD_MONTH` | `20` | Approximate monthly OpenRouter spend cap (USD). Check the OpenRouter dashboard for authoritative spend. |
 
 > **The `MCP_JWT_SECRET` is the most common source of "everything looks deployed but nothing works" failures.** Open the compose file, copy the exact string (no surrounding quotes), and paste it as the EasyPanel env var.
 
@@ -100,7 +100,7 @@ curl -u admin:<APP_PASSWORD> https://<your-domain>/api/health
 Expected:
 
 ```json
-{"ok":true,"mcp":"up","anthropic":"configured","redis":"up"}
+{"ok":true,"mcp":"up","openrouter":"configured","redis":"up"}
 ```
 
 | If you see... | Then... |
@@ -143,7 +143,7 @@ This hits the deployed app and exercises the chart-summary streaming path end-to
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `502` on `/` | MCP unreachable. | Verify `MCP_INTERNAL_URL=http://superset-mcp:5008` and that the `superset-mcp` container is running in the same project. |
-| Streaming hangs forever on first token | `ANTHROPIC_API_KEY` invalid, or rate-limited at the Anthropic edge. | Run `curl https://api.anthropic.com/v1/messages -H "x-api-key: $ANTHROPIC_API_KEY" ...` to verify the key. |
+| Streaming hangs forever on first token | `OPENROUTER_API_KEY` invalid, model slug wrong, or rate-limited at OpenRouter. | Test the key with `curl https://openrouter.ai/api/v1/models -H "Authorization: Bearer $OPENROUTER_API_KEY" | head`. Verify model exists at https://openrouter.ai/models. |
 | `429` on every request from a fresh deploy | In-memory rate-limit counter holding stale state from prior testing. | Restart the container — counters live in memory, not Redis. |
 | `"Cost cap reached"` with no actual usage | Stale Redis counter for the current month from prior testing. | `redis-cli -u $REDIS_URL del monthly_cost:YYYY-MM` (e.g. `monthly_cost:2026-05`). |
 | Iframe shows Superset login screen instead of the embedded dashboard | `SUPERSET_URL` wrong, or the dashboard isn't published as embedded in Superset. | Verify URL + open the dashboard in Superset → Settings → Embed and check it's enabled. |
