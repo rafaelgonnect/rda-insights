@@ -13,8 +13,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid body" }, { status: 400 });
   }
   try {
-    const { token } = await new McpClient().createGuestToken(parsed.data.dashboard_id);
-    return NextResponse.json({ token });
+    const { token, uuid } = await new McpClient().createGuestToken(parsed.data.dashboard_id);
+    return NextResponse.json({ token, uuid });
   } catch (e) {
     console.error(JSON.stringify({ event: "guest_token.fail", err: String(e) }));
     return NextResponse.json({ error: "Failed to mint guest token" }, { status: 502 });

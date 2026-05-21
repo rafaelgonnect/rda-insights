@@ -19,9 +19,12 @@ function authHandlers() {
 }
 
 describe("POST /api/guest-token", () => {
-  it("returns token from Superset", async () => {
+  it("returns token + embed uuid from Superset", async () => {
     server.use(
       ...authHandlers(),
+      http.get("http://localhost:8088/api/v1/dashboard/7/embedded", () =>
+        HttpResponse.json({ result: { uuid: "embed-uuid-7" } })
+      ),
       http.post("http://localhost:8088/api/v1/security/guest_token/", () =>
         HttpResponse.json({ token: "abc.def.ghi" })
       )
@@ -36,6 +39,7 @@ describe("POST /api/guest-token", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.token).toBe("abc.def.ghi");
+    expect(body.uuid).toBe("embed-uuid-7");
   });
 
   it("returns 400 on invalid body", async () => {

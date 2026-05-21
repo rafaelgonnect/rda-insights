@@ -21,21 +21,24 @@ export function DashboardEmbed({
     let unobserve: (() => void) | undefined;
 
     (async () => {
-      const fetchGuestToken = async () => {
+      const fetchTokenResponse = async () => {
         const res = await fetch("/api/guest-token", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ dashboard_id: dashboardId }),
         });
         if (!res.ok) throw new Error("guest token failed");
-        return (await res.json()).token as string;
+        return (await res.json()) as { token: string; uuid: string };
       };
 
+      const initial = await fetchTokenResponse();
+      if (disposed) return;
+
       const ctx = await embedDashboard({
-        id: String(dashboardId),
+        id: initial.uuid,
         supersetDomain: supersetUrl,
         mountPoint: mountRef.current!,
-        fetchGuestToken,
+        fetchGuestToken: async () => (await fetchTokenResponse()).token,
         dashboardUiConfig: { hideTitle: false, hideTab: false, hideChartControls: false },
       });
 

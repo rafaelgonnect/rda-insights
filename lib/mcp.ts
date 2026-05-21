@@ -181,20 +181,28 @@ export class McpClient {
     return r.result.columns.map((c) => ({ column_name: c.column_name, type: c.type ?? "" }));
   }
 
+  async getDashboardEmbedUuid(dashboardId: number): Promise<string> {
+    const r = await this.fetchJson<{ result: { uuid: string } }>(
+      `/api/v1/dashboard/${dashboardId}/embedded`
+    );
+    return r.result.uuid;
+  }
+
   async createGuestToken(
     dashboardId: number,
     ttl: number = 300
-  ): Promise<{ token: string }> {
+  ): Promise<{ token: string; uuid: string }> {
     void ttl; // Superset controls TTL via GUEST_TOKEN_JWT_EXP_SECONDS config
+    const uuid = await this.getDashboardEmbedUuid(dashboardId);
     const r = await this.fetchJson<{ token: string }>("/api/v1/security/guest_token/", {
       method: "POST",
       body: JSON.stringify({
         user: { username: "viewer", first_name: "Guest", last_name: "Viewer" },
-        resources: [{ type: "dashboard", id: String(dashboardId) }],
+        resources: [{ type: "dashboard", id: uuid }],
         rls: [],
       }),
     });
-    return { token: r.token };
+    return { token: r.token, uuid };
   }
 
   async executeSql(
