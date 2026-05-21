@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { DashboardEmbed, CrossFilterEvent } from "@/components/DashboardEmbed";
-import { InsightsSidebar } from "@/components/InsightsSidebar";
+import { ChatSidebar } from "@/components/ChatSidebar";
 
 export function DashboardClient({
   dashboardId,
@@ -22,7 +22,7 @@ export function DashboardClient({
           onCrossFilter={setFilter}
         />
       </div>
-      <InsightsSidebar dashboardId={dashboardId} charts={charts} pendingFilter={filter} />
+      <ChatSidebar dashboardId={dashboardId} charts={charts} pendingFilter={filter} />
     </div>
   );
 }
