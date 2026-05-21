@@ -182,7 +182,7 @@ export function ChatSidebar({
               </div>
             )}
 
-            {messages.map((msg) => (
+            {messages.map((msg, idx) => (
               <ChatMessageItem
                 key={
                   msg.role === "tool_activity"
@@ -193,6 +193,7 @@ export function ChatSidebar({
                 }
                 msg={msg}
                 onConfirm={confirm}
+                globalStreaming={streaming && idx === messages.length - 1}
               />
             ))}
 

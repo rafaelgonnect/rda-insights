@@ -80,22 +80,62 @@ export function humanizeTool(name: string): string {
   return TOOL_LABELS[name] ?? name;
 }
 
+// ─── TypingDots ───────────────────────────────────────────────────────────────
+
+export function TypingDots() {
+  return (
+    <div className="flex items-center gap-1 px-1 py-2" aria-label="digitando">
+      <span className="size-1.5 rounded-full bg-muted-foreground animate-[bounce_1s_infinite] [animation-delay:0ms]" />
+      <span className="size-1.5 rounded-full bg-muted-foreground animate-[bounce_1s_infinite] [animation-delay:150ms]" />
+      <span className="size-1.5 rounded-full bg-muted-foreground animate-[bounce_1s_infinite] [animation-delay:300ms]" />
+    </div>
+  );
+}
+
 // ─── ToolPill ─────────────────────────────────────────────────────────────────
 
 function ToolPill({ tc }: { tc: ToolCallEvent }) {
+  const isRunning = tc.status === "running";
+  const isOk = tc.status === "ok";
+
   return (
-    <span className="inline-flex items-center gap-1 h-6 text-xs px-2 rounded-full bg-muted/60 mr-1 mb-1">
-      {tc.status === "running" ? (
-        <Loader2 className="size-3 animate-spin text-muted-foreground" />
-      ) : tc.status === "ok" ? (
-        <Check className="size-3 text-green-500" />
-      ) : (
-        <X className="size-3 text-destructive" />
-      )}
+    <span
+      className={[
+        "inline-flex items-center gap-1 h-6 text-xs px-2 rounded-full mr-1 mb-1 transition-all duration-300",
+        isRunning
+          ? // Shimmer gradient during running — sweeps left to right
+            "bg-gradient-to-r from-muted via-muted-foreground/15 to-muted bg-[length:200%_100%] animate-[shimmer_1.5s_infinite] [animation-duration:2s]"
+          : "bg-muted/60",
+      ].join(" ")}
+    >
+      {/* Status icon — scale-in on transition to terminal state */}
+      <span className="relative flex items-center justify-center size-3">
+        {isRunning ? (
+          <Loader2 className="size-3 animate-spin text-muted-foreground" />
+        ) : isOk ? (
+          <Check
+            className="size-3 text-green-500"
+            style={{ animation: "scale-in 0.25s ease both" }}
+          />
+        ) : (
+          <X
+            className="size-3 text-destructive"
+            style={{ animation: "scale-in 0.25s ease both" }}
+          />
+        )}
+      </span>
+
       <Wrench className="size-3 text-muted-foreground" />
       <span className="text-muted-foreground">{humanizeTool(tc.name)}</span>
-      {tc.durationMs !== undefined && (
-        <span className="text-muted-foreground/60">{tc.durationMs}ms</span>
+
+      {/* Duration label — slides in from right when terminal */}
+      {tc.durationMs !== undefined && !isRunning && (
+        <span
+          className="text-muted-foreground/60"
+          style={{ animation: "slide-in-right 0.2s ease both" }}
+        >
+          {tc.durationMs}ms
+        </span>
       )}
     </span>
   );
@@ -112,8 +152,23 @@ function ToolConfirmationCard({ msg, onConfirm }: ToolConfirmationCardProps) {
   const isPending = msg.status === "pending";
   const isApplying = msg.status === "applying";
 
+  // Background flash color for terminal states
+  const terminalBg =
+    msg.status === "applied"
+      ? "bg-green-50/80 dark:bg-green-950/20"
+      : msg.status === "canceled" || msg.status === "error"
+      ? "bg-muted/30"
+      : "";
+
   return (
-    <div className="mb-3 border border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 rounded-lg overflow-hidden">
+    <div
+      className={[
+        "mb-3 border border-amber-500/40 rounded-lg overflow-hidden transition-colors duration-500",
+        isPending || isApplying
+          ? "bg-amber-50 dark:bg-amber-950/30"
+          : terminalBg,
+      ].join(" ")}
+    >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-amber-500/20">
         <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -139,26 +194,40 @@ function ToolConfirmationCard({ msg, onConfirm }: ToolConfirmationCardProps) {
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-2 border-t border-amber-500/20 flex items-center gap-2">
+      <div className="px-3 py-2 border-t border-amber-500/20 flex items-center gap-2 min-h-[2.5rem]">
         {msg.status === "applied" && (
-          <span className="inline-flex items-center gap-1 text-xs text-green-700 dark:text-green-400">
-            <Check className="size-3" /> Aplicado
+          <span
+            className="inline-flex items-center gap-1 text-xs text-green-700 dark:text-green-400"
+            style={{ animation: "fade-in 0.3s ease both" }}
+          >
+            <Check className="size-3" style={{ animation: "scale-in 0.25s ease both" }} />
+            Concluído
           </span>
         )}
         {msg.status === "canceled" && (
-          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <span
+            className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+            style={{ animation: "fade-in 0.3s ease both" }}
+          >
             <X className="size-3" /> Cancelado
           </span>
         )}
         {msg.status === "error" && (
-          <span className="inline-flex items-center gap-1 text-xs text-destructive">
+          <span
+            className="inline-flex items-center gap-1 text-xs text-destructive"
+            style={{ animation: "slide-in-right 0.2s ease both" }}
+          >
             <X className="size-3" /> {msg.errorMessage ?? "Erro"}
           </span>
         )}
+
         {(isPending || isApplying) && (
           <>
             {isApplying ? (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <span
+                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+                style={{ animation: "fade-in 0.15s ease both" }}
+              >
                 <Loader2 className="size-3 animate-spin" /> Aplicando…
               </span>
             ) : (
@@ -166,14 +235,22 @@ function ToolConfirmationCard({ msg, onConfirm }: ToolConfirmationCardProps) {
                 <button
                   onClick={() => onConfirm(msg.pendingId, "apply")}
                   disabled={!isPending}
-                  className="h-7 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  className="h-7 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium
+                    hover:bg-primary/90 disabled:opacity-50
+                    transition-all duration-150
+                    active:scale-95
+                    focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 >
                   Aplicar
                 </button>
                 <button
                   onClick={() => onConfirm(msg.pendingId, "cancel")}
                   disabled={!isPending}
-                  className="h-7 px-3 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted disabled:opacity-50 transition-colors"
+                  className="h-7 px-3 rounded-md border border-input bg-background text-xs font-medium
+                    hover:bg-muted disabled:opacity-50
+                    transition-all duration-150
+                    active:scale-95
+                    focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                 >
                   Cancelar
                 </button>
@@ -191,9 +268,11 @@ function ToolConfirmationCard({ msg, onConfirm }: ToolConfirmationCardProps) {
 type ChatMessageItemProps = {
   msg: ChatMessageType;
   onConfirm?: (pendingId: string, decision: "apply" | "cancel") => void;
+  /** When true and content is empty, show typing dots instead of blank */
+  globalStreaming?: boolean;
 };
 
-export function ChatMessageItem({ msg, onConfirm }: ChatMessageItemProps) {
+export function ChatMessageItem({ msg, onConfirm, globalStreaming }: ChatMessageItemProps) {
   if (msg.role === "user") {
     return (
       <div className="flex justify-end mb-3">
@@ -229,7 +308,10 @@ export function ChatMessageItem({ msg, onConfirm }: ChatMessageItemProps) {
     );
   }
 
-  // assistant
+  // assistant message
+  const isEmpty = !msg.content;
+  const showTypingDots = isEmpty && globalStreaming;
+
   return (
     <div className="flex flex-col mb-3 max-w-[92%]">
       {msg.toolCalls.length > 0 && (
@@ -239,11 +321,13 @@ export function ChatMessageItem({ msg, onConfirm }: ChatMessageItemProps) {
           ))}
         </div>
       )}
-      {msg.content && (
+      {showTypingDots ? (
+        <TypingDots />
+      ) : msg.content ? (
         <div className="text-sm [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_ul]:list-disc [&_ul]:pl-4 [&_li]:my-0.5 [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_p]:mb-1 max-w-none">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

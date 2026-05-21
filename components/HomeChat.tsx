@@ -1,6 +1,6 @@
 "use client";
 import { useRef, useEffect, KeyboardEvent } from "react";
-import Link from "next/link";
+import { NavLink } from "@/components/NavLink";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AlertCircle, Send, Square, CheckCircle2 } from "lucide-react";
@@ -103,19 +103,19 @@ export function HomeChat() {
               ? `Dashboard "${createdDashboardTitle}" criado!`
               : "Dashboard criado com sucesso!"}
           </span>
-          <Link
+          <NavLink
             href={`/d/${createdDashboardId}`}
             className="shrink-0 h-8 px-4 rounded-md bg-green-700 hover:bg-green-800 text-white text-sm font-medium inline-flex items-center transition-colors"
           >
             Abrir dashboard
-          </Link>
+          </NavLink>
         </div>
       )}
 
       {/* Message thread (shown after first submit) */}
       {hasMessages && (
         <div className="flex flex-col gap-0 max-h-[520px] overflow-y-auto pr-1">
-          {messages.map((msg) => (
+          {messages.map((msg, idx) => (
             <ChatMessageItem
               key={
                 msg.role === "tool_activity"
@@ -126,6 +126,7 @@ export function HomeChat() {
               }
               msg={msg}
               onConfirm={confirm}
+              globalStreaming={streaming && idx === messages.length - 1}
             />
           ))}
 

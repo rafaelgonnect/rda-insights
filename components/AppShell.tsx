@@ -1,13 +1,14 @@
 import { ReactNode } from "react";
 import Link from "next/link";
+import { NavLink } from "@/components/NavLink";
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex flex-col h-screen">
       <header className="border-b px-4 py-3 flex items-center justify-between">
-        <Link href="/" className="font-semibold">
+        <NavLink href="/" className="font-semibold">
           RDA Insights
-        </Link>
+        </NavLink>
         <div className="flex items-center gap-4">
           <Link
             href="/settings"

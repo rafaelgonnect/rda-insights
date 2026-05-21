@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { AppShell } from "@/components/AppShell";
 import { McpClient } from "@/lib/mcp";
 import { Card } from "@/components/ui/card";
 import { HomeChat } from "@/components/HomeChat";
+import { NavLink } from "@/components/NavLink";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +30,7 @@ export default async function Home() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {dashboards.map((d) => (
-                <Link key={d.id} href={`/d/${d.id}`}>
+                <NavLink key={d.id} href={`/d/${d.id}`}>
                   <Card className="overflow-hidden hover:bg-accent transition cursor-pointer">
                     <div className="aspect-video bg-gradient-to-br from-muted to-muted-foreground/10 relative">
                       {d.thumbnail_url ? (
@@ -54,7 +54,7 @@ export default async function Home() {
                       <div className="text-xs text-muted-foreground">#{d.id}</div>
                     </div>
                   </Card>
-                </Link>
+                </NavLink>
               ))}
             </div>
           )}
