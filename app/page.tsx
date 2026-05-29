@@ -1,7 +1,6 @@
-import { AppShell } from "@/components/AppShell";
 import { McpClient } from "@/lib/mcp";
 import { Card } from "@/components/ui/card";
-import { HomeChat } from "@/components/HomeChat";
+import { HomeLauncher } from "@/components/HomeLauncher";
 import { NavLink } from "@/components/NavLink";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +14,10 @@ export default async function Home() {
     error = String(e);
   }
   return (
-    <AppShell>
-      <div className="p-6 max-w-4xl mx-auto flex flex-col gap-8">
-        {/* Home chat — create a new dashboard from scratch */}
+    <div className="p-6 max-w-4xl mx-auto flex flex-col gap-8 overflow-y-auto h-full">
+        {/* Home launcher — create a new dashboard from scratch */}
         <div className="max-w-3xl mx-auto w-full py-2">
-          <HomeChat />
+          <HomeLauncher />
         </div>
 
         {/* Existing dashboards grid */}
@@ -60,6 +58,5 @@ export default async function Home() {
           )}
         </div>
       </div>
-    </AppShell>
   );
 }

@@ -6,11 +6,9 @@ import { ChatSidebar } from "@/components/ChatSidebar";
 export function DashboardClient({
   dashboardId,
   supersetUrl,
-  charts,
 }: {
   dashboardId: number;
   supersetUrl: string;
-  charts: { id: number; slice_name: string }[];
 }) {
   const [filter, setFilter] = useState<CrossFilterEvent | null>(null);
   return (
@@ -22,7 +20,7 @@ export function DashboardClient({
           onCrossFilter={setFilter}
         />
       </div>
-      <ChatSidebar dashboardId={dashboardId} charts={charts} pendingFilter={filter} />
+      <ChatSidebar dashboardId={dashboardId} pendingFilter={filter} />
     </div>
   );
 }

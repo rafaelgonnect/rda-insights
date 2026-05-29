@@ -1,7 +1,8 @@
 "use client";
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Loader2, Check, X, Wrench, AlertTriangle } from "lucide-react";
+import { Loader2, Check, X, Wrench, AlertTriangle, Copy, RotateCcw } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -265,14 +266,68 @@ function ToolConfirmationCard({ msg, onConfirm }: ToolConfirmationCardProps) {
 
 // ─── ChatMessage component ────────────────────────────────────────────────────
 
+// ─── AssistantActions (copy / regenerate) ────────────────────────────────────
+
+function AssistantActions({
+  content,
+  onRegenerate,
+}: {
+  content: string;
+  onRegenerate?: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard blocked — ignore
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-1 mt-1 -ml-1">
+      <button
+        onClick={copy}
+        title="Copiar"
+        className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+      >
+        {copied ? <Check className="size-3 text-green-500" /> : <Copy className="size-3" />}
+        {copied ? "Copiado" : "Copiar"}
+      </button>
+      {onRegenerate && (
+        <button
+          onClick={onRegenerate}
+          title="Regenerar resposta"
+          className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+        >
+          <RotateCcw className="size-3" />
+          Regenerar
+        </button>
+      )}
+    </div>
+  );
+}
+
 type ChatMessageItemProps = {
   msg: ChatMessageType;
   onConfirm?: (pendingId: string, decision: "apply" | "cancel") => void;
   /** When true and content is empty, show typing dots instead of blank */
   globalStreaming?: boolean;
+  /** Show copy/regenerate actions (last assistant message, not streaming). */
+  showActions?: boolean;
+  onRegenerate?: () => void;
 };
 
-export function ChatMessageItem({ msg, onConfirm, globalStreaming }: ChatMessageItemProps) {
+export function ChatMessageItem({
+  msg,
+  onConfirm,
+  globalStreaming,
+  showActions,
+  onRegenerate,
+}: ChatMessageItemProps) {
   if (msg.role === "user") {
     return (
       <div className="flex justify-end mb-3">
@@ -327,6 +382,9 @@ export function ChatMessageItem({ msg, onConfirm, globalStreaming }: ChatMessage
         <div className="text-sm [&_h1]:text-base [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_ul]:list-disc [&_ul]:pl-4 [&_li]:my-0.5 [&_code]:bg-muted [&_code]:px-1 [&_code]:rounded [&_p]:mb-1 max-w-none">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
         </div>
+      ) : null}
+      {showActions && msg.content ? (
+        <AssistantActions content={msg.content} onRegenerate={onRegenerate} />
       ) : null}
     </div>
   );
