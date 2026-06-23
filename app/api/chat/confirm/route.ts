@@ -90,7 +90,9 @@ export async function POST(req: Request) {
     return result.result;
   };
 
-  const tools = toolsForOpenAI();
+  // Reaching the confirm endpoint always means a write tool (Dev mode), so the
+  // continuation must keep write tools available.
+  const tools = toolsForOpenAI({ writable: true });
   const requiresConfirmation = (name: string) => getToolByName(name)?.requiresConfirmation === true;
 
   return sseStream(async function* () {
@@ -113,6 +115,14 @@ export async function POST(req: Request) {
               id: (r.result as Record<string, unknown>).id,
               title: pending.toolArgs.dashboard_title,
             }),
+          });
+        }
+        // A confirmed write against the anchored dashboard mutated it — tell the
+        // client so an embedded view can reload to reflect the change.
+        if (pending.dashboardId) {
+          pendingSideEvents.push({
+            event: "dashboard_mutated",
+            data: JSON.stringify({ dashboard_id: pending.dashboardId, tool: pending.toolName }),
           });
         }
       } else {

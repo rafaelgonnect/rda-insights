@@ -1,9 +1,11 @@
 "use client";
 import { useRef, KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { Send, Square } from "lucide-react";
+import { Send, Square, MessageCircle, Wrench } from "lucide-react";
 
-// Shared chat input: auto-growing textarea + send/stop button.
+export type ComposerMode = "chat" | "dev";
+
+// Shared chat input: optional mode toggle + auto-growing textarea + send/stop.
 // Enter submits; Shift+Enter inserts a newline.
 
 export function ChatComposer({
@@ -17,6 +19,8 @@ export function ChatComposer({
   minRows = 1,
   maxHeight = 200,
   className = "",
+  mode,
+  onModeChange,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -28,6 +32,9 @@ export function ChatComposer({
   minRows?: number;
   maxHeight?: number;
   className?: string;
+  /** When both are provided, a Bate-papo/Dev segmented toggle is shown. */
+  mode?: ComposerMode;
+  onModeChange?: (m: ComposerMode) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
 
@@ -54,8 +61,29 @@ export function ChatComposer({
     }
   }
 
+  const showToggle = mode !== undefined && onModeChange !== undefined;
+
   return (
-    <div className={`flex gap-2 items-end ${className}`}>
+    <div className={`flex flex-col gap-2 ${className}`}>
+      {showToggle && (
+        <div className="flex items-center gap-1 self-start rounded-lg border bg-muted/40 p-0.5 text-xs">
+          <ModeButton
+            active={mode === "chat"}
+            onClick={() => onModeChange!("chat")}
+            icon={<MessageCircle className="size-3.5" />}
+            label="Bate-papo"
+            title="Planejar, tirar dúvidas e fazer brainstorming sobre os dados (somente leitura)"
+          />
+          <ModeButton
+            active={mode === "dev"}
+            onClick={() => onModeChange!("dev")}
+            icon={<Wrench className="size-3.5" />}
+            label="Dev"
+            title="Criar e alterar dashboards e gráficos (cada mudança pede confirmação)"
+          />
+        </div>
+      )}
+      <div className="flex gap-2 items-end">
       <textarea
         ref={ref}
         rows={minRows}
@@ -84,6 +112,39 @@ export function ChatComposer({
           <Send className="size-3.5" />
         </Button>
       )}
+      </div>
     </div>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  icon,
+  label,
+  title,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  title: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={active}
+      className={[
+        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md font-medium transition-colors",
+        active
+          ? "bg-background text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground",
+      ].join(" ")}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }

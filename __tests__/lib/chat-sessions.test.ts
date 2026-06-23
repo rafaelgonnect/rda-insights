@@ -35,6 +35,7 @@ import {
   setAutostart,
   takeAutostart,
   subscribe,
+  normalizeMode,
 } from "@/lib/chat-sessions";
 import type { ChatMessageType } from "@/components/ChatMessage";
 
@@ -46,9 +47,9 @@ describe("chat-sessions metadata", () => {
   });
 
   it("creates a session with a truncated title and returns its meta", () => {
-    const meta = createSession({ title: "Quero um dashboard de NBA com top scorers", mode: "create" });
+    const meta = createSession({ title: "Quero um dashboard de NBA com top scorers", mode: "dev" });
     expect(meta.id).toBeTruthy();
-    expect(meta.mode).toBe("create");
+    expect(meta.mode).toBe("dev");
     expect(getSession(meta.id)?.title).toBe("Quero um dashboard de NBA com top scorers");
     expect(listSessions()).toHaveLength(1);
   });
@@ -63,6 +64,23 @@ describe("chat-sessions metadata", () => {
   it("falls back to 'Novo chat' for empty titles", () => {
     const meta = createSession({ title: "   " });
     expect(getSession(meta.id)?.title).toBe("Novo chat");
+  });
+
+  it("defaults new sessions to chat mode", () => {
+    const meta = createSession({ title: "x" });
+    expect(meta.mode).toBe("chat");
+  });
+
+  it("migrates legacy modes: create→dev, dashboard→chat", () => {
+    expect(normalizeMode("create")).toBe("dev");
+    expect(normalizeMode("dashboard")).toBe("chat");
+    expect(normalizeMode("dev")).toBe("dev");
+    expect(normalizeMode("chat")).toBe("chat");
+    expect(normalizeMode(undefined)).toBe("chat");
+    // A session persisted with the legacy mode is normalized on read.
+    const meta = createSession({ title: "legacy" });
+    updateSession(meta.id, { mode: "create" as unknown as "dev" });
+    expect(getSession(meta.id)?.mode).toBe("dev");
   });
 
   it("sorts sessions most-recently-updated first", () => {

@@ -106,8 +106,19 @@ describe("Tool registry", () => {
     }
   });
 
-  it("toolsForOpenAI() returns correct shape", () => {
+  it("toolsForOpenAI() defaults to READ-only (Bate-papo) — 12 tools", () => {
     const tools = toolsForOpenAI();
+    expect(tools).toHaveLength(12);
+    const names = tools.map(
+      (t) => (t as { function: { name: string } }).function.name
+    );
+    // No write tool leaks into read-only mode
+    expect(names).not.toContain("create_dashboard");
+    expect(names).not.toContain("execute_sql");
+  });
+
+  it("toolsForOpenAI({ writable: true }) (Dev) returns all 25 with correct shape", () => {
+    const tools = toolsForOpenAI({ writable: true });
     expect(tools).toHaveLength(25);
     for (const t of tools) {
       expect(t.type).toBe("function");

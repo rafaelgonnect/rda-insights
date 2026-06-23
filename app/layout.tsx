@@ -16,8 +16,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "RDA Insights",
-  description: "Análise e criação de dashboards no Apache Superset com IA.",
+  title: "Colab Insights",
+  description:
+    "Bate-papo e Dev para o Apache Superset: planeje e converse com seus dados, e construa dashboards com IA.",
 };
 
 // Set the theme class before paint to avoid a flash of the wrong theme.

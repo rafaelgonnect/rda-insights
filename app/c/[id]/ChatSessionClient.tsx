@@ -1,11 +1,26 @@
 "use client";
+import { useState } from "react";
 import { NavLink } from "@/components/NavLink";
 import { CheckCircle2 } from "lucide-react";
 import { useChatSession } from "@/lib/use-chat-session";
 import { MessageList } from "@/components/MessageList";
 import { ChatComposer } from "@/components/ChatComposer";
+import {
+  getSession,
+  updateSession,
+  type ChatSessionMode,
+} from "@/lib/chat-sessions";
 
 export function ChatSessionClient({ sessionId }: { sessionId: string }) {
+  const [mode, setMode] = useState<ChatSessionMode>(
+    () => getSession(sessionId)?.mode ?? "chat"
+  );
+  // Dashboard this session is anchored to (set once a dashboard is created),
+  // so Dev-mode edits target it.
+  const [dashboardId, setDashboardId] = useState<number | undefined>(
+    () => getSession(sessionId)?.createdDashboardId ?? undefined
+  );
+
   const {
     messages,
     input,
@@ -20,17 +35,32 @@ export function ChatSessionClient({ sessionId }: { sessionId: string }) {
     createdDashboardId,
     createdDashboardTitle,
   } = useChatSession({
-    mode: "create",
+    mode,
+    dashboardId,
     sessionId,
     consumeAutostart: true,
   });
+
+  // Once the conversation produces a dashboard, anchor Dev-mode edits to it.
+  // Adjusting state during render (guarded) is React's recommended alternative
+  // to a setState-in-effect; it re-runs the hook with the new dashboardId.
+  if (createdDashboardId != null && createdDashboardId !== dashboardId) {
+    setDashboardId(createdDashboardId);
+  }
+
+  function changeMode(m: ChatSessionMode) {
+    setMode(m);
+    updateSession(sessionId, { mode: m });
+  }
 
   return (
     <div className="flex flex-col h-full max-w-3xl mx-auto w-full">
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {messages.length === 0 && !streaming && (
           <div className="text-center text-sm text-muted-foreground mt-10">
-            Conte o que você quer analisar e a IA monta o painel.
+            {mode === "dev"
+              ? "Modo Dev: descreva o dashboard ou a mudança que você quer e a IA aplica (com sua confirmação)."
+              : "Modo Bate-papo: planeje, tire dúvidas e faça brainstorming sobre os dados."}
           </div>
         )}
         <MessageList
@@ -67,7 +97,13 @@ export function ChatSessionClient({ sessionId }: { sessionId: string }) {
           onStop={stop}
           streaming={streaming}
           autoFocus
-          placeholder="Continue a conversa…"
+          mode={mode}
+          onModeChange={changeMode}
+          placeholder={
+            mode === "dev"
+              ? "Descreva a mudança no dashboard…"
+              : "Pergunte ou planeje sobre os dados…"
+          }
         />
       </div>
     </div>

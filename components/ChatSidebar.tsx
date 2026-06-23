@@ -1,24 +1,36 @@
 "use client";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { useChatSession } from "@/lib/use-chat-session";
 import { MessageList } from "@/components/MessageList";
 import { ChatComposer } from "@/components/ChatComposer";
+import type { ChatSessionMode } from "@/lib/chat-sessions";
 
-const EXAMPLE_PROMPTS = [
-  "Resuma este painel",
-  "Quais gráficos têm filtro de ano?",
-  "Mostre uma amostra do dataset principal",
-];
+const EXAMPLE_PROMPTS: Record<ChatSessionMode, string[]> = {
+  chat: [
+    "Resuma este painel",
+    "Quais gráficos têm filtro de ano?",
+    "Mostre uma amostra do dataset principal",
+  ],
+  dev: [
+    "Adicione um gráfico de barras de notas por escola",
+    "Mude o título do dashboard",
+    "Troque o gráfico de pizza por uma tabela",
+  ],
+};
 
 export function ChatSidebar({
   dashboardId,
   pendingFilter,
+  onDashboardMutated,
 }: {
   dashboardId: number;
   pendingFilter: { chartId: number; filterValues: Record<string, unknown> } | null;
+  onDashboardMutated?: (d: { dashboardId: number; tool?: string }) => void;
 }) {
+  const [mode, setMode] = useState<ChatSessionMode>("chat");
   const {
     messages,
     input,
@@ -32,9 +44,10 @@ export function ChatSidebar({
     clear,
     confirm,
   } = useChatSession({
-    mode: "dashboard",
+    mode,
     dashboardId,
     filterContext: pendingFilter?.filterValues ?? null,
+    onDashboardMutated,
     storageKey: `chat:dashboard:${dashboardId}`,
   });
 
@@ -53,7 +66,7 @@ export function ChatSidebar({
       {/* Header */}
       <div className="p-3 border-b flex items-center justify-between shrink-0">
         <div>
-          <h2 className="font-semibold text-sm">Chat IA</h2>
+          <h2 className="font-semibold text-sm">Colab Insights</h2>
           <p className="text-xs text-muted-foreground">Dashboard #{dashboardId}</p>
         </div>
         <Button size="xs" variant="ghost" onClick={clear} disabled={streaming} className="text-xs">
@@ -90,10 +103,12 @@ export function ChatSidebar({
           {!hasMessages && !streaming && (
             <div className="flex flex-col items-center gap-3 mt-8 text-center">
               <p className="text-xs text-muted-foreground">
-                Faça uma pergunta sobre este dashboard
+                {mode === "dev"
+                  ? "Descreva uma mudança neste dashboard"
+                  : "Faça uma pergunta sobre este dashboard"}
               </p>
               <div className="flex flex-col gap-1.5 w-full">
-                {EXAMPLE_PROMPTS.map((prompt) => (
+                {EXAMPLE_PROMPTS[mode].map((prompt) => (
                   <button
                     key={prompt}
                     className="text-xs px-3 py-1.5 rounded-full bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors text-left"
@@ -126,7 +141,13 @@ export function ChatSidebar({
           onStop={stop}
           streaming={streaming}
           maxHeight={120}
-          placeholder="Pergunte sobre o dashboard…"
+          mode={mode}
+          onModeChange={setMode}
+          placeholder={
+            mode === "dev"
+              ? "Descreva a mudança no dashboard…"
+              : "Pergunte sobre o dashboard…"
+          }
         />
       </div>
     </aside>

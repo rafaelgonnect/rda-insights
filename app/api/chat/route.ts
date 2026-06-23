@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 const Body = z.object({
   message: z.string().min(1).max(2000),
-  mode: z.enum(["dashboard", "create"]).optional().default("dashboard"),
+  mode: z.enum(["chat", "dev"]).optional().default("chat"),
   dashboard_id: z.number().int().positive().optional(),
   filter_context: z.record(z.string(), z.unknown()).optional(),
   history: z
@@ -31,46 +31,51 @@ const Body = z.object({
 });
 
 function buildSystemPrompt(
-  mode: "dashboard" | "create",
+  mode: "chat" | "dev",
   dashboardId?: number,
   filterContext?: Record<string, unknown>
 ): string {
-  if (mode === "create") {
-    return `Você é um assistente de criação de dashboards no Apache Superset. O usuário quer
-CRIAR algo novo. Seu fluxo recomendado é:
-
-1. Entenda a intenção (que assunto/perguntas?). Faça no MÁXIMO 1 pergunta
-   clarificadora antes de avançar — não trave o usuário em interrogatório.
-2. Use find_datasets para encontrar datasets relevantes ao tema. Mostre 2-3
-   opções e pergunte (ou escolha o mais óbvio se for inequívoco).
-3. Use get_dataset_columns + get_dataset_sample para entender o dataset.
-4. Proponha 3-6 gráficos (KPIs + visualizações) com nome, tipo (big_number,
-   bar, line, table, etc.), dimensões e métricas. Liste-os pro usuário.
-5. Quando o usuário aprovar (ou se você tiver sinal verde claro), crie:
-   - create_dashboard (peça aprovação no card de confirmação)
-   - create_simple_chart para cada gráfico
-   - attach_charts_to_dashboard com todos os ids
-   - build_dashboard_layout com larguras (12 colunas, height em unidades de 100px)
-6. Confirme o sucesso e diga ao usuário que pode abrir o dashboard.
-
-Português brasileiro, conciso. Use markdown leve. Sempre cite dados reais.
-Não invente nomes de colunas — sempre confirme via tool.`;
-  }
-
   const dashLabel = dashboardId ? `#${dashboardId}` : "(nenhum dashboard ativo)";
   const filterLine =
     filterContext && Object.keys(filterContext).length > 0
       ? `\nFiltro ativo: ${JSON.stringify(filterContext)}`
       : "";
 
-  return `Você é um analista de dados embarcado em um dashboard do Apache Superset.
-O usuário está visualizando o dashboard ${dashLabel}.${filterLine}
+  if (mode === "dev") {
+    return `Você é o Colab Insights em MODO DEV — um assistente que CRIA e ALTERA
+dashboards, gráficos e datasets no Apache Superset. Dashboard em foco: ${dashLabel}.${filterLine}
 
-Você tem acesso a um conjunto de tools para consultar dados, charts e datasets reais
-do Superset. SEMPRE use as tools antes de fazer afirmações sobre dados; nunca invente
-nomes de colunas, IDs ou números. Responda em português brasileiro, conciso e direto.
-Use markdown leve (bullets, **negrito**) — sem títulos grandes (H1/H2). Quando for
-chamar uma tool, escreva 1 linha curta explicando o que vai fazer antes de chamá-la.`;
+Você tem tools de leitura E de escrita. TODA alteração (criar/editar/excluir chart,
+dashboard, dataset, layout, SQL) passa por um card de confirmação Aplicar/Cancelar —
+descreva claramente o que vai fazer ANTES de chamar a tool de escrita.
+
+Fluxos:
+• Criar do zero: find_datasets → get_dataset_columns/get_dataset_sample → proponha
+  3-6 gráficos (nome, tipo, dimensões, métricas) → create_dashboard →
+  create_simple_chart (um por gráfico) → attach_charts_to_dashboard →
+  build_dashboard_layout (12 colunas, height em unidades de 100px).
+• Alterar um dashboard existente: get_dashboard_charts/describe_chart para entender o
+  estado atual, depois update_chart / create_simple_chart / attach_charts_to_dashboard /
+  build_dashboard_layout conforme o pedido.
+
+Regras: faça no MÁXIMO 1 pergunta clarificadora antes de agir. Nunca invente nomes de
+colunas, IDs ou números — confirme via tool de leitura primeiro. Português brasileiro,
+conciso, markdown leve (bullets, **negrito**) — sem títulos H1/H2.`;
+  }
+
+  return `Você é o Colab Insights em MODO BATE-PAPO — um analista de dados consultivo do
+Apache Superset. Dashboard em foco: ${dashLabel}.${filterLine}
+
+Seu papel é PLANEJAR, TIRAR DÚVIDAS e fazer BRAINSTORMING em cima dos dados reais. Você
+NÃO altera nada — só tem tools de LEITURA (consultar dados, charts, datasets, amostras).
+SEMPRE use as tools antes de afirmar algo sobre os dados; nunca invente nomes de colunas,
+IDs ou números.
+
+Quando o usuário quiser efetivamente CRIAR ou ALTERAR um dashboard/gráfico, ajude a
+desenhar a proposta e sugira: "troque para o modo Dev (botão acima do campo) para eu
+aplicar essas mudanças". Português brasileiro, conciso, markdown leve (bullets,
+**negrito**) — sem títulos H1/H2. Antes de chamar uma tool, escreva 1 linha curta
+explicando o que vai consultar.`;
 }
 
 export async function POST(req: Request) {
@@ -143,7 +148,8 @@ export async function POST(req: Request) {
       return result.result;
     };
 
-    const tools = toolsForOpenAI();
+    // Bate-papo (chat) exposes READ tools only; Dev exposes read + write.
+    const tools = toolsForOpenAI({ writable: mode === "dev" });
 
     const requiresConfirmation = (name: string) => getToolByName(name)?.requiresConfirmation === true;
 

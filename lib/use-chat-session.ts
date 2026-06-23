@@ -54,9 +54,12 @@ function saveMessages(storageKey: string, messages: ChatMessageType[]) {
 // ─── Public interface ─────────────────────────────────────────────────────────
 
 export interface UseChatSessionOpts {
-  mode: "dashboard" | "create";
+  mode: "chat" | "dev";
   dashboardId?: number;
   filterContext?: Record<string, unknown> | null;
+  /** Called when a Dev-mode write is applied against the anchored dashboard,
+   *  so an embedded view can reload to reflect the change. */
+  onDashboardMutated?: (d: { dashboardId: number; tool?: string }) => void;
   /** Legacy single-slot persistence key (dashboard sidebar). */
   storageKey?: string;
   /** Session-based persistence (home / create chats). Takes precedence. */
@@ -92,6 +95,7 @@ export function useChatSession(opts: UseChatSessionOpts): UseChatSessionResult {
     mode,
     dashboardId,
     filterContext,
+    onDashboardMutated,
     storageKey,
     sessionId,
     consumeAutostart,
@@ -252,6 +256,14 @@ export function useChatSession(opts: UseChatSessionOpts): UseChatSessionResult {
         });
       } else if (event === "dashboard_created") {
         handleDashboardCreated(d);
+      } else if (event === "dashboard_mutated") {
+        const did = typeof d.dashboard_id === "number" ? d.dashboard_id : Number(d.dashboard_id);
+        if (Number.isFinite(did)) {
+          onDashboardMutated?.({
+            dashboardId: did,
+            tool: typeof d.tool === "string" ? d.tool : undefined,
+          });
+        }
       } else if (event === "tool_pending_confirmation") {
         const confirmMsg: ChatMessageType = {
           role: "tool_confirmation",

@@ -10,7 +10,7 @@ export function proxy(req: NextRequest) {
   if (!validateBasicAuth(req.headers.get("authorization"))) {
     return new NextResponse("Auth required", {
       status: 401,
-      headers: { "WWW-Authenticate": 'Basic realm="RDA Insights"' },
+      headers: { "WWW-Authenticate": 'Basic realm="Colab Insights"' },
     });
   }
   return NextResponse.next();

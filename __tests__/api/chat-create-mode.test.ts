@@ -143,8 +143,8 @@ async function* afterCreateStream() {
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
-describe("POST /api/chat with mode=create", () => {
-  it("returns 200 with text/event-stream when mode=create and no dashboard_id", async () => {
+describe("POST /api/chat with mode=dev", () => {
+  it("returns 200 with text/event-stream when mode=dev and no dashboard_id", async () => {
     server.use(
       http.post("http://localhost:8088/api/v1/security/login", () =>
         HttpResponse.json({ access_token: "tok" })
@@ -159,7 +159,7 @@ describe("POST /api/chat with mode=create", () => {
     const req = new Request("http://x/api/chat", {
       method: "POST",
       headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.1" },
-      body: JSON.stringify({ message: "Quero um dashboard de NBA", mode: "create" }),
+      body: JSON.stringify({ message: "Quero um dashboard de NBA", mode: "dev" }),
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
@@ -170,7 +170,7 @@ describe("POST /api/chat with mode=create", () => {
     expect(done).toBeDefined();
   });
 
-  it("accepts create mode with no dashboard_id (does not return 400)", async () => {
+  it("accepts dev mode with no dashboard_id (does not return 400)", async () => {
     server.use(
       http.post("http://localhost:8088/api/v1/security/login", () =>
         HttpResponse.json({ access_token: "tok" })
@@ -186,13 +186,13 @@ describe("POST /api/chat with mode=create", () => {
       method: "POST",
       headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.2" },
       // No dashboard_id — valid in create mode
-      body: JSON.stringify({ message: "Criar dashboard", mode: "create" }),
+      body: JSON.stringify({ message: "Criar dashboard", mode: "dev" }),
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
   });
 
-  it("defaults to mode=dashboard when mode is omitted", async () => {
+  it("defaults to mode=chat when mode is omitted", async () => {
     server.use(
       http.post("http://localhost:8088/api/v1/security/login", () =>
         HttpResponse.json({ access_token: "tok" })
@@ -239,7 +239,7 @@ describe("POST /api/chat with mode=create", () => {
     const req = new Request("http://x/api/chat", {
       method: "POST",
       headers: { "content-type": "application/json", "x-forwarded-for": "10.0.0.4" },
-      body: JSON.stringify({ message: "Criar dashboard NBA", mode: "create" }),
+      body: JSON.stringify({ message: "Criar dashboard NBA", mode: "dev" }),
     });
     const res = await POST(req);
     const rawBody = await readSseBody(res);

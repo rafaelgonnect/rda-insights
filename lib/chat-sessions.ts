@@ -8,7 +8,14 @@
 
 import type { ChatMessageType } from "@/components/ChatMessage";
 
-export type ChatSessionMode = "create" | "dashboard";
+export type ChatSessionMode = "chat" | "dev";
+
+/** Normalize a stored mode, mapping the legacy names to the current ones
+ *  (dashboard → chat, create → dev) so old localStorage sessions keep working. */
+export function normalizeMode(raw: unknown): ChatSessionMode {
+  if (raw === "dev" || raw === "create") return "dev";
+  return "chat"; // "chat", legacy "dashboard", or anything unknown
+}
 
 export interface ChatSessionMeta {
   id: string;
@@ -91,7 +98,9 @@ export function subscribe(cb: () => void): () => void {
 
 function readIndex(): ChatSessionMeta[] {
   const list = read<ChatSessionMeta[]>(INDEX_KEY, []);
-  return Array.isArray(list) ? list : [];
+  if (!Array.isArray(list)) return [];
+  // Normalize legacy mode names (create/dashboard) on the way out.
+  return list.map((s) => ({ ...s, mode: normalizeMode(s.mode) }));
 }
 
 function writeIndex(list: ChatSessionMeta[]): void {
@@ -126,7 +135,7 @@ export function createSession(opts: {
   const meta: ChatSessionMeta = {
     id: opts.id ?? (typeof crypto !== "undefined" ? crypto.randomUUID() : String(now)),
     title: makeTitle(opts.title ?? ""),
-    mode: opts.mode ?? "create",
+    mode: opts.mode ?? "chat",
     createdAt: now,
     updatedAt: now,
     dashboardId: opts.dashboardId,

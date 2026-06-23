@@ -619,8 +619,17 @@ export async function executeTool(
   }
 }
 
-export function toolsForOpenAI(): ChatCompletionFunctionTool[] {
-  return TOOLS.map((t) => {
+/**
+ * OpenAI/OpenRouter function-tool schemas.
+ *
+ * @param opts.writable  When false (the default), only READ tools
+ *   (requiresConfirmation === false) are exposed — this is "Bate-papo" mode,
+ *   which must never mutate Superset. When true ("Dev" mode), every tool is
+ *   exposed, and write tools still go through the Apply/Cancel confirmation.
+ */
+export function toolsForOpenAI(opts: { writable?: boolean } = {}): ChatCompletionFunctionTool[] {
+  const writable = opts.writable ?? false;
+  return TOOLS.filter((t) => writable || !t.requiresConfirmation).map((t) => {
     // Use Zod v4's built-in toJSONSchema
     const schema = z.toJSONSchema(t.parameters, { target: "draft-7" });
     // Remove $schema meta from the parameters object — OpenAI doesn't want it

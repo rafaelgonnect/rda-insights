@@ -112,8 +112,11 @@ export function Sidebar() {
     <aside className="w-64 border-r flex flex-col h-full shrink-0 bg-sidebar text-sidebar-foreground">
       {/* Brand + collapse */}
       <div className="px-3 py-3 flex items-center justify-between shrink-0">
-        <NavLink href="/" className="font-semibold text-sm">
-          RDA Insights
+        <NavLink href="/" className="flex items-center gap-2 font-semibold text-sm">
+          <span className="inline-flex size-5 items-center justify-center rounded-md bg-primary text-primary-foreground text-[11px] font-bold">
+            C
+          </span>
+          Colab Insights
         </NavLink>
         <button
           onClick={toggleCollapsed}

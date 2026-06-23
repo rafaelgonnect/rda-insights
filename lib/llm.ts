@@ -10,7 +10,7 @@ const client = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   defaultHeaders: {
     "HTTP-Referer": "https://github.com/rafaelgonnect/rda-insights",
-    "X-Title": "RDA Insights",
+    "X-Title": "Colab Insights",
   },
 });
 
